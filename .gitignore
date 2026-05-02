@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.local
+.next/
+out/
+dist/
+artifacts/
+cache/
+coverage/
+coverage.json
+types/
+fhevmTemp/
+.DS_Store
+*.log
+contracts/deployments/localhost/

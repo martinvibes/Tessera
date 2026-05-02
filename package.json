@@ -1,0 +1,13 @@
+{
+  "name": "tessera",
+  "version": "0.0.1",
+  "private": true,
+  "workspaces": ["contracts", "web"],
+  "scripts": {
+    "dev:web": "npm --workspace web run dev",
+    "build:contracts": "npm --workspace contracts run compile",
+    "test:contracts": "npm --workspace contracts run test",
+    "deploy:sepolia": "npm --workspace contracts run deploy:sepolia",
+    "sync-abis": "npm --workspace contracts run sync-abis"
+  }
+}

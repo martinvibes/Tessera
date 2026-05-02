@@ -13,3 +13,4 @@ fhevmTemp/
 .DS_Store
 *.log
 contracts/deployments/localhost/
+.claude/

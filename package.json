@@ -4,6 +4,8 @@
   "private": true,
   "workspaces": ["contracts", "web"],
   "scripts": {
+    "dev": "node scripts/dev-local.mjs",
+    "dev:local": "node scripts/dev-local.mjs",
     "dev:web": "npm --workspace web run dev",
     "build:contracts": "npm --workspace contracts run compile",
     "test:contracts": "npm --workspace contracts run test",

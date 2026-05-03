@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
 import { LoginButton } from "@/components/login-button";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAV = [
   { href: "/", label: "Overview" },
@@ -52,6 +53,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-3">
             <ChainPill />
+            <ThemeToggle />
             <LoginButton />
           </div>
         </div>

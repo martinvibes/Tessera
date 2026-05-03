@@ -1,24 +1,23 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useMemo } from "react";
 
 /**
- * Infinite horizontal ticker of fake encrypted handles + institutional codes.
- * Two lanes drifting in opposite directions. Bloomberg + git diff vibes.
+ * Infinite horizontal ticker of stable encrypted-looking handles.
+ * Two lanes drift in opposite directions. Bloomberg + git diff vibes.
+ *
+ * Values are pre-seeded constants — using Math.random() at render time would
+ * produce SSR/client hydration mismatches.
  */
 export function EncryptedTicker() {
-  const lane1 = useMemo(() => makeLane(18), []);
-  const lane2 = useMemo(() => makeLane(18), []);
-
   return (
     <section
       aria-hidden
       className="relative overflow-hidden border-y border-rule bg-ink-2/40"
     >
-      <Lane items={lane1} direction="left" duration={70} />
+      <Lane items={LANE_A} direction="left" duration={70} />
       <div className="h-px bg-rule" />
-      <Lane items={lane2} direction="right" duration={90} />
+      <Lane items={LANE_B} direction="right" duration={90} />
     </section>
   );
 }
@@ -32,7 +31,6 @@ function Lane({
   direction: "left" | "right";
   duration: number;
 }) {
-  // Duplicate for seamless loop
   const stream = [...items, ...items];
   return (
     <div className="relative overflow-hidden">
@@ -64,39 +62,32 @@ function Cell({ item }: { item: TickerItem }) {
 
 type TickerItem = { label: string; value: string; tone: "sage" | "marigold" };
 
-function makeLane(n: number): TickerItem[] {
-  const labels = [
-    "cTBILL/cUSDC",
-    "RFQ-EU",
-    "TIER-I",
-    "AUM-BRACKET",
-    "ATTEST",
-    "MICA",
-    "DvP",
-    "JURISDICTION-826",
-    "SETTLED",
-    "SEPOLIA",
-    "FHE-EUINT64",
-    "ACL",
-    "COPILOT-OK",
-    "RECEIPT-Z",
-    "OBSERVER",
-  ];
-  const out: TickerItem[] = [];
-  for (let i = 0; i < n; i++) {
-    out.push({
-      label: labels[i % labels.length],
-      value: hex(8 + (i % 6) * 2),
-      tone: Math.random() < 0.6 ? "sage" : "marigold",
-    });
-  }
-  return out;
-}
+const LANE_A: TickerItem[] = [
+  { label: "cTBILL/cUSDC", value: "0x9f6dc530…", tone: "sage" },
+  { label: "RFQ-EU",       value: "0x2c8b1a47…", tone: "marigold" },
+  { label: "TIER-I",       value: "0x4eaa1130…", tone: "sage" },
+  { label: "AUM-BRACKET",  value: "0xa1c0bb75…", tone: "sage" },
+  { label: "ATTEST",       value: "0x68d92e44…", tone: "marigold" },
+  { label: "MICA",         value: "0x771ba0c2…", tone: "sage" },
+  { label: "DvP",          value: "0xb04f2c09…", tone: "sage" },
+  { label: "JURIS-826",    value: "0x3c9a01e8…", tone: "marigold" },
+  { label: "SETTLED",      value: "0xe22a87c1…", tone: "sage" },
+  { label: "FHE-EUINT64",  value: "0x05b4f6dd…", tone: "sage" },
+  { label: "ACL",          value: "0xab8412b7…", tone: "marigold" },
+  { label: "COPILOT-OK",   value: "0x4d6a09f3…", tone: "sage" },
+];
 
-function hex(len: number) {
-  const chars = "0123456789abcdef";
-  let s = "0x";
-  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * 16)];
-  s += "…";
-  return s;
-}
+const LANE_B: TickerItem[] = [
+  { label: "RECEIPT-Z",    value: "0x07e3c188…", tone: "marigold" },
+  { label: "OBSERVER",     value: "0x91d2447b…", tone: "sage" },
+  { label: "SEPOLIA",      value: "0x6614aa39…", tone: "sage" },
+  { label: "BRAVO",        value: "0xf01928a4…", tone: "marigold" },
+  { label: "ACME",         value: "0x2218f550…", tone: "sage" },
+  { label: "T-BILL-MAT",   value: "0x88305cb1…", tone: "marigold" },
+  { label: "NETTING",      value: "0x5cd80933…", tone: "sage" },
+  { label: "DISCLOSURE",   value: "0xae7902c6…", tone: "marigold" },
+  { label: "KYB-OK",       value: "0xb1c44dd0…", tone: "sage" },
+  { label: "ESCROW",       value: "0x37e810f2…", tone: "sage" },
+  { label: "FREEZE",       value: "0x09f3a26b…", tone: "marigold" },
+  { label: "AUDIT-Q",      value: "0xcc2b71e9…", tone: "sage" },
+];

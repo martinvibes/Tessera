@@ -37,8 +37,8 @@ export function CursorGlow() {
         x: sx,
         y: sy,
         background:
-          "radial-gradient(circle at center, rgba(212, 162, 76, 0.16) 0%, rgba(212, 162, 76, 0.06) 35%, transparent 70%)",
-        mixBlendMode: "screen",
+          "radial-gradient(circle at center, rgba(var(--glow-color-r), var(--glow-color-g), var(--glow-color-b), 0.18) 0%, rgba(var(--glow-color-r), var(--glow-color-g), var(--glow-color-b), 0.06) 35%, transparent 70%)",
+        mixBlendMode: "var(--glow-blend)" as React.CSSProperties["mixBlendMode"],
       }}
     />
   );

@@ -14,3 +14,5 @@ fhevmTemp/
 *.log
 contracts/deployments/localhost/
 .claude/
+
+/docs

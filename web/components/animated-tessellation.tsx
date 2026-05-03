@@ -102,8 +102,13 @@ export function AnimatedTessellation({
             "radial-gradient(ellipse 75% 65% at 50% 35%, black 0%, transparent 78%)",
         }}
       />
-      {/* Random flashes */}
-      <div className="absolute inset-0 mix-blend-soft-light">{flashes}</div>
+      {/* Random flashes — blend adapts to light/dark via CSS var */}
+      <div
+        className="absolute inset-0"
+        style={{ mixBlendMode: "var(--tess-blend)" as React.CSSProperties["mixBlendMode"] }}
+      >
+        {flashes}
+      </div>
       <style jsx>{`
         @keyframes tessera-flash {
           0% {

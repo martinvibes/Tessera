@@ -1,50 +1,100 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------- *
- *  Tessera design tokens                                           *
- *  Refined institutional editorial. Dark ink + warm parchment +    *
- *  marigold accent + muted sage for "encrypted" states.            *
+ *  Tessera design tokens — dual theme                              *
+ *  Dark : warm black ink + cream paper text                        *
+ *  Light: cream paper ground + deep ink text                       *
+ *  Marigold + sage + crimson accents work on both.                 *
+ *                                                                  *
+ *  Semantics stay constant: `ink` = surface, `paper` = type.       *
  * ---------------------------------------------------------------- */
 
-:root {
-  /* Surface */
-  --ink: #0b0a09;            /* primary background — warm black */
-  --ink-2: #14120f;          /* card / panel */
-  --ink-3: #1c1916;          /* hover, raised */
-  --rule: #2a2520;           /* hairline borders */
-  --rule-2: #3a342d;
+:root,
+:root[data-theme="dark"] {
+  /* Surface — warm black */
+  --ink:        #0b0a09;
+  --ink-2:      #14120f;
+  --ink-3:      #1c1916;
+  --rule:       #2a2520;
+  --rule-2:     #3a342d;
 
-  /* Type */
-  --paper: #f5efe2;          /* warm off-white, aged paper */
-  --paper-dim: #c9c1b1;      /* secondary copy */
-  --paper-faint: #7d756a;    /* tertiary, captions */
-  --paper-ghost: #4a443c;    /* placeholder, disabled */
+  /* Type — cream paper */
+  --paper:        #f5efe2;
+  --paper-dim:    #c9c1b1;
+  --paper-faint:  #7d756a;
+  --paper-ghost:  #4a443c;
 
-  /* Accents — used sparingly */
-  --marigold: #d4a24c;       /* hero accent, CTAs, brand tag */
-  --marigold-deep: #b07e2a;  /* hover/pressed */
-  --sage: #8a9b80;           /* "encrypted" / privacy indicators */
-  --crimson: #b8553a;        /* errors, warnings */
+  /* Accents */
+  --marigold:      #d4a24c;
+  --marigold-deep: #b07e2a;
+  --sage:          #8a9b80;
+  --crimson:       #b8553a;
+
+  /* Atmosphere */
+  --grain-opacity: 0.06;
+  --grain-blend:   overlay;
+  --tess-blend:    soft-light;
+  --glow-color-r:  212;
+  --glow-color-g:  162;
+  --glow-color-b:  76;
+  --glow-blend:    screen;
+  --shadow-edge:   rgba(0, 0, 0, 0.35);
+
+  color-scheme: dark;
 }
 
+:root[data-theme="light"] {
+  /* Surface — cream paper */
+  --ink:        #f5efe2;   /* page ground */
+  --ink-2:      #ece5d3;   /* panel */
+  --ink-3:      #ddd3bd;   /* raised */
+  --rule:       #d2c8b1;
+  --rule-2:     #b8ac90;
+
+  /* Type — deep editorial ink */
+  --paper:        #14110d;
+  --paper-dim:    #3a342c;
+  --paper-faint:  #6e655a;
+  --paper-ghost:  #a89e8d;
+
+  /* Accents — same identity, slight desat for light contrast */
+  --marigold:      #b07e2a;
+  --marigold-deep: #8a611a;
+  --sage:          #5e7256;
+  --crimson:       #9e3a22;
+
+  /* Atmosphere */
+  --grain-opacity: 0.045;
+  --grain-blend:   multiply;
+  --tess-blend:    multiply;
+  --glow-color-r:  176;
+  --glow-color-g:  126;
+  --glow-color-b:  42;
+  --glow-blend:    multiply;
+  --shadow-edge:   rgba(20, 17, 13, 0.12);
+
+  color-scheme: light;
+}
+
+/* Tailwind v4 inline theme — exposes vars as utility colors. */
 @theme inline {
-  --color-ink: var(--ink);
-  --color-ink-2: var(--ink-2);
-  --color-ink-3: var(--ink-3);
-  --color-rule: var(--rule);
-  --color-rule-2: var(--rule-2);
-  --color-paper: var(--paper);
-  --color-paper-dim: var(--paper-dim);
-  --color-paper-faint: var(--paper-faint);
-  --color-paper-ghost: var(--paper-ghost);
-  --color-marigold: var(--marigold);
+  --color-ink:          var(--ink);
+  --color-ink-2:        var(--ink-2);
+  --color-ink-3:        var(--ink-3);
+  --color-rule:         var(--rule);
+  --color-rule-2:       var(--rule-2);
+  --color-paper:        var(--paper);
+  --color-paper-dim:    var(--paper-dim);
+  --color-paper-faint:  var(--paper-faint);
+  --color-paper-ghost:  var(--paper-ghost);
+  --color-marigold:     var(--marigold);
   --color-marigold-deep: var(--marigold-deep);
-  --color-sage: var(--sage);
-  --color-crimson: var(--crimson);
+  --color-sage:         var(--sage);
+  --color-crimson:      var(--crimson);
 
   --font-display: var(--font-fraunces);
-  --font-sans: var(--font-geist);
-  --font-mono: var(--font-jetbrains-mono);
+  --font-sans:    var(--font-geist);
+  --font-mono:    var(--font-jetbrains-mono);
 }
 
 * {
@@ -57,6 +107,7 @@ html, body {
   color: var(--paper);
   font-family: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
   font-feature-settings: "ss01", "ss02", "cv11";
+  transition: background 0.45s ease, color 0.45s ease;
 }
 
 /* Tessellation background — subtle, only visible on hero surfaces */
@@ -70,25 +121,23 @@ html, body {
   -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 0%, transparent 75%);
 }
 
-/* Film grain — institutional photogravure feel */
+/* Film grain — adapts blend mode for light/dark */
 .grain::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.06;
-  mix-blend-mode: overlay;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: var(--grain-blend);
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.5 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
 }
 
-/* Editorial number — tabular figures with optical sizing */
 .num {
   font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
   font-feature-settings: "tnum", "zero";
   font-variant-numeric: tabular-nums slashed-zero;
 }
 
-/* Sweep highlight on encrypted handle */
 @keyframes sweep {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(120%); }
@@ -97,11 +146,15 @@ html, body {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(245, 239, 226, 0.06), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--paper) 8%, transparent),
+    transparent
+  );
   animation: sweep 2.4s ease-in-out infinite;
 }
 
-/* Restore pointer cursor on interactive elements (Tailwind v4 reset removes it). */
 button:not(:disabled),
 [role="button"]:not(:disabled),
 summary,
@@ -120,12 +173,10 @@ button:disabled,
   cursor: not-allowed;
 }
 
-/* Refined focus ring */
 *:focus-visible {
   outline: 1px solid var(--marigold);
   outline-offset: 3px;
   border-radius: 2px;
 }
 
-/* Lift selection */
 ::selection { background: var(--marigold); color: var(--ink); }

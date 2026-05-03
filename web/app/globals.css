@@ -101,6 +101,25 @@ html, body {
   animation: sweep 2.4s ease-in-out infinite;
 }
 
+/* Restore pointer cursor on interactive elements (Tailwind v4 reset removes it). */
+button:not(:disabled),
+[role="button"]:not(:disabled),
+summary,
+label[for],
+input[type="submit"],
+input[type="button"],
+input[type="reset"],
+input[type="radio"],
+input[type="checkbox"],
+select {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 /* Refined focus ring */
 *:focus-visible {
   outline: 1px solid var(--marigold);

@@ -30,4 +30,13 @@ contract ConfidentialTBill is ERC7984, Ownable, ZamaEthereumConfig {
         minted = FHE.asEuint64(amount);
         _mint(to, minted);
     }
+
+    /// @notice Caller-signed transfer where the amount is provided in cleartext
+    ///         and trivially encrypted on-chain. Caller is the spender.
+    /// @dev For local-dev / demo paths. Production transfers use the encrypted-input
+    ///      `confidentialTransfer(address, externalEuint64, bytes)` from ERC-7984.
+    function transferClear(address to, uint64 amount) external returns (euint64 transferred) {
+        transferred = FHE.asEuint64(amount);
+        _transfer(msg.sender, to, transferred);
+    }
 }

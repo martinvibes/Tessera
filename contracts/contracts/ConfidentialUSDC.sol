@@ -28,4 +28,11 @@ contract ConfidentialUSDC is ERC7984, Ownable, ZamaEthereumConfig {
         minted = FHE.asEuint64(amount);
         _mint(to, minted);
     }
+
+    /// @notice Caller-signed transfer with cleartext amount.
+    /// @dev For local-dev / demo paths. Production transfers use encrypted input.
+    function transferClear(address to, uint64 amount) external returns (euint64 transferred) {
+        transferred = FHE.asEuint64(amount);
+        _transfer(msg.sender, to, transferred);
+    }
 }

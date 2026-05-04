@@ -11,6 +11,8 @@ import {
 } from "@web3auth/modal/react";
 import { ADDR, TESSERA_ID_ABI, TBILL_ABI, USDC_ABI } from "@/lib/contracts";
 import { LoginButton } from "@/components/login-button";
+import { SendModal } from "@/components/send-modal";
+import { CounterpartyLookup } from "@/components/counterparty-lookup";
 
 // Read directly from the configured RPC. Web3Auth's BrowserProvider may target a
 // different chain than the contracts are deployed on (e.g. Sepolia vs local
@@ -28,6 +30,12 @@ type Position = {
   error: string | null;
 };
 
+type DecryptState =
+  | { status: "encrypted" }
+  | { status: "signing" | "decrypting" }
+  | { status: "revealed"; value: bigint }
+  | { status: "error"; message: string };
+
 type IdentityState =
   | { status: "loading" }
   | { status: "missing" }
@@ -39,6 +47,8 @@ export default function Dashboard() {
   const { provider } = useWeb3Auth();
   const { isConnected } = useWeb3AuthConnect();
   const { userInfo } = useWeb3AuthUser();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [account, setAccount] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [ethBalance, setEthBalance] = useState<bigint | null>(null);
@@ -51,6 +61,63 @@ export default function Dashboard() {
     err: null,
     tx: null,
   });
+  const [sendModal, setSendModal] = useState<"cTBILL" | "cUSDC" | null>(null);
+  const [decrypts, setDecrypts] = useState<Record<string, DecryptState>>({});
+
+  const decryptBalance = useCallback(
+    async (symbol: "cTBILL" | "cUSDC", tokenAddress: string) => {
+      if (!provider || !account) return;
+      setDecrypts((d) => ({ ...d, [symbol]: { status: "signing" } }));
+      try {
+        const walletProvider = new BrowserProvider(provider as never);
+        const signer = await walletProvider.getSigner();
+        const issuedAt = Date.now();
+
+        const signature = await signer.signTypedData(
+          { name: "Tessera", version: "1" },
+          {
+            Decrypt: [
+              { name: "holder", type: "address" },
+              { name: "token", type: "address" },
+              { name: "issuedAt", type: "uint256" },
+            ],
+          },
+          { holder: account, token: tokenAddress, issuedAt },
+        );
+
+        setDecrypts((d) => ({ ...d, [symbol]: { status: "decrypting" } }));
+        const res = await fetch("/api/decrypt-balance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            holder: account,
+            token: tokenAddress,
+            issuedAt,
+            signature,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Decrypt failed");
+        setDecrypts((d) => ({
+          ...d,
+          [symbol]: { status: "revealed", value: BigInt(data.balance) },
+        }));
+      } catch (e: unknown) {
+        const message =
+          e && typeof e === "object" && "shortMessage" in e
+            ? String((e as { shortMessage: unknown }).shortMessage)
+            : e instanceof Error
+              ? e.message
+              : String(e);
+        setDecrypts((d) => ({ ...d, [symbol]: { status: "error", message } }));
+      }
+    },
+    [provider, account],
+  );
+
+  const reEncryptAll = useCallback(() => {
+    setDecrypts({});
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -165,6 +232,10 @@ export default function Dashboard() {
     }
   }
 
+  if (!mounted) {
+    return <section className="mx-auto w-full max-w-[1100px] px-6 py-24 md:px-10" />;
+  }
+
   if (!isConnected) {
     return (
       <section className="mx-auto w-full max-w-[1100px] px-6 py-24 md:px-10">
@@ -238,17 +309,24 @@ export default function Dashboard() {
             }
           />
           <Stat
-            label="Balance"
+            label="Gas balance"
             value={
               ethBalance !== null ? (
-                <span className="num inline-flex items-baseline gap-1.5">
-                  <span className="font-display text-[22px] font-light text-paper">
-                    {Number(formatEther(ethBalance)).toFixed(3)}
+                <div>
+                  <span className="num inline-flex items-baseline gap-1.5">
+                    <span className="font-display text-[22px] font-light text-paper">
+                      {Number(formatEther(ethBalance)).toFixed(4)}
+                    </span>
+                    <span className="text-[11px] uppercase tracking-[0.22em] text-paper-faint">
+                      ETH
+                    </span>
                   </span>
-                  <span className="text-[11px] uppercase tracking-[0.22em] text-paper-faint">
-                    ETH
+                  <span className="num mt-0.5 block text-[9.5px] uppercase tracking-[0.22em] text-paper-faint">
+                    {process.env.NEXT_PUBLIC_LOCAL_DEV === "true"
+                      ? "auto-funded · pays for your signed txs"
+                      : "for tx gas"}
                   </span>
-                </span>
+                </div>
               ) : (
                 <span className="text-paper-faint">—</span>
               )
@@ -307,13 +385,41 @@ export default function Dashboard() {
         <div className="col-span-12 space-y-6 md:col-span-8">
           {!deployedOk && <DeployBanner />}
 
-          <Panel title="Encrypted positions" tag="§ Confidential balances">
+          <Panel
+            title="Encrypted positions"
+            tag="§ Confidential balances"
+            actions={
+              Object.keys(decrypts).length > 0 ? (
+                <button
+                  onClick={reEncryptAll}
+                  className="num inline-flex items-center gap-1.5 text-[9.5px] uppercase tracking-[0.22em] text-paper-faint hover:text-paper"
+                >
+                  Re-hide
+                </button>
+              ) : null
+            }
+          >
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               {positions.map((p) => (
-                <PositionCard key={p.symbol} p={p} />
+                <PositionCard
+                  key={p.symbol}
+                  p={p}
+                  decryptState={decrypts[p.symbol] ?? { status: "encrypted" }}
+                  onSend={() => setSendModal(p.symbol)}
+                  onDecrypt={() => decryptBalance(p.symbol, p.address)}
+                />
               ))}
               {positions.length === 0 && <Skeleton lines={3} />}
             </div>
+          </Panel>
+
+          <Panel title="Counterparty lookup" tag="§ Public vs private">
+            <p className="mb-4 text-[13px] leading-snug text-paper-dim">
+              Paste any address — yours, your counterparty&apos;s, a Hardhat default
+              like <code className="num text-paper-faint">0x70997970…</code>. See exactly
+              what&apos;s public on-chain and what stays encrypted.
+            </p>
+            <CounterpartyLookup />
           </Panel>
 
           <Panel title="Order book · cTBILL ↔ cUSDC" tag="§ FHE matcher (Plan 2)">
@@ -321,6 +427,14 @@ export default function Dashboard() {
           </Panel>
         </div>
       </div>
+
+      <SendModal
+        open={sendModal !== null}
+        onClose={() => setSendModal(null)}
+        symbol={sendModal ?? "cUSDC"}
+        walletProvider={provider as unknown}
+        onConfirmed={() => setRefresh((n) => n + 1)}
+      />
     </section>
   );
 }
@@ -365,10 +479,12 @@ function CopyAddress({ address }: { address: string }) {
 function Panel({
   title,
   tag,
+  actions,
   children,
 }: {
   title: string;
   tag?: string;
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -378,11 +494,14 @@ function Panel({
       transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       className="border border-rule bg-ink-2/40"
     >
-      <div className="flex items-baseline justify-between border-b border-rule/80 px-5 py-3">
+      <div className="flex items-baseline justify-between gap-3 border-b border-rule/80 px-5 py-3">
         <p className="num text-[10.5px] uppercase tracking-[0.26em] text-paper">{title}</p>
-        {tag && (
-          <p className="num text-[9.5px] uppercase tracking-[0.22em] text-paper-faint">{tag}</p>
-        )}
+        <div className="flex items-baseline gap-3">
+          {actions}
+          {tag && (
+            <p className="num text-[9.5px] uppercase tracking-[0.22em] text-paper-faint">{tag}</p>
+          )}
+        </div>
       </div>
       <div className="px-5 py-5">{children}</div>
     </motion.div>
@@ -437,10 +556,23 @@ function FaucetPanel({
   );
 }
 
-function PositionCard({ p }: { p: Position }) {
-  const has = p.balanceHandle && p.balanceHandle !== ZERO_HANDLE;
+function PositionCard({
+  p,
+  decryptState,
+  onSend,
+  onDecrypt,
+}: {
+  p: Position;
+  decryptState: DecryptState;
+  onSend: () => void;
+  onDecrypt: () => void;
+}) {
+  const has = !!(p.balanceHandle && p.balanceHandle !== ZERO_HANDLE);
+  const revealed = decryptState.status === "revealed" ? decryptState.value : null;
+  const busy = decryptState.status === "signing" || decryptState.status === "decrypting";
+
   return (
-    <article className="relative overflow-hidden border border-rule-2 bg-ink p-5">
+    <article className="relative flex flex-col overflow-hidden border border-rule-2 bg-ink p-5">
       <div className="flex items-baseline justify-between">
         <span className="font-display text-[20px] font-light text-paper">{p.symbol}</span>
         <span className="num text-[10px] uppercase tracking-[0.22em] text-paper-faint">
@@ -449,7 +581,7 @@ function PositionCard({ p }: { p: Position }) {
       </div>
       <p className="num mt-1 text-[10.5px] uppercase tracking-[0.18em] text-paper-faint">{p.name}</p>
 
-      <div className="relative mt-6">
+      <div className="relative mt-6 flex-1">
         {p.error ? (
           <div>
             <p className="font-display text-[28px] font-light leading-none text-paper-faint">—</p>
@@ -458,23 +590,45 @@ function PositionCard({ p }: { p: Position }) {
             </p>
           </div>
         ) : has ? (
-          <div>
-            <div className="relative inline-block">
-              <p className="font-display text-[40px] font-light leading-none tracking-tight text-paper">
-                ▢▢▢ ▢▢▢
+          revealed !== null ? (
+            <div>
+              <p className="num font-display text-[40px] font-light leading-none tracking-tight text-paper">
+                {formatUnits(revealed)}
               </p>
-              <span className="absolute inset-0 sweep" />
+              <p className="num mt-3 flex items-center gap-2 text-[10.5px] uppercase tracking-[0.2em] text-marigold">
+                <Eye /> Decrypted for you
+              </p>
+              <p
+                className="num mt-3 max-w-full truncate text-[10px] tracking-[0.05em] text-paper-faint"
+                title={p.balanceHandle ?? undefined}
+              >
+                {p.balanceHandle}
+              </p>
             </div>
-            <p className="num mt-3 flex items-center gap-2 text-[10.5px] uppercase tracking-[0.2em] text-sage">
-              <Lock /> Encrypted balance
-            </p>
-            <p
-              className="num mt-3 max-w-full truncate text-[10px] tracking-[0.05em] text-paper-faint"
-              title={p.balanceHandle ?? undefined}
-            >
-              {p.balanceHandle}
-            </p>
-          </div>
+          ) : (
+            <div>
+              <div className="relative inline-block">
+                <p className="font-display text-[40px] font-light leading-none tracking-tight text-paper">
+                  ▢▢▢ ▢▢▢
+                </p>
+                <span className="absolute inset-0 sweep" />
+              </div>
+              <p className="num mt-3 flex items-center gap-2 text-[10.5px] uppercase tracking-[0.2em] text-sage">
+                <Lock /> Encrypted balance
+              </p>
+              <p
+                className="num mt-3 max-w-full truncate text-[10px] tracking-[0.05em] text-paper-faint"
+                title={p.balanceHandle ?? undefined}
+              >
+                {p.balanceHandle}
+              </p>
+              {decryptState.status === "error" && (
+                <p className="num mt-2 max-w-full break-words text-[9.5px] uppercase tracking-[0.2em] text-crimson">
+                  {decryptState.message}
+                </p>
+              )}
+            </div>
+          )
         ) : (
           <div>
             <p className="font-display text-[40px] font-light leading-none tracking-tight text-paper-faint">
@@ -486,8 +640,49 @@ function PositionCard({ p }: { p: Position }) {
           </div>
         )}
       </div>
+
+      <div className="mt-5 flex items-center gap-2 border-t border-rule pt-4">
+        <button
+          onClick={onDecrypt}
+          disabled={!has || busy || revealed !== null}
+          className="num inline-flex items-center gap-2 border border-rule px-3 py-2 text-[10px] uppercase tracking-[0.22em] text-paper-dim transition-colors hover:border-marigold hover:text-marigold disabled:opacity-40 disabled:hover:border-rule disabled:hover:text-paper-dim"
+        >
+          {decryptState.status === "signing" && (
+            <>
+              <Spinner /> Sign message
+            </>
+          )}
+          {decryptState.status === "decrypting" && (
+            <>
+              <Spinner /> Decrypting
+            </>
+          )}
+          {decryptState.status === "revealed" && (
+            <>
+              <Eye /> Revealed
+            </>
+          )}
+          {(decryptState.status === "encrypted" || decryptState.status === "error") && (
+            <>
+              <Eye /> Decrypt
+            </>
+          )}
+        </button>
+        <button
+          onClick={onSend}
+          disabled={!has}
+          className="num inline-flex items-center gap-2 border border-rule px-3 py-2 text-[10px] uppercase tracking-[0.22em] text-paper-dim transition-colors hover:border-marigold hover:text-marigold disabled:opacity-40 disabled:hover:border-rule disabled:hover:text-paper-dim"
+        >
+          Send <Arrow />
+        </button>
+      </div>
     </article>
   );
+}
+
+function formatUnits(v: bigint): string {
+  // Whole-units formatter with thousand separators.
+  return v.toLocaleString("en-US");
 }
 
 function DeployBanner() {
@@ -597,6 +792,21 @@ function Lock() {
       <rect x="2" y="5" width="7" height="5" stroke="currentColor" strokeWidth="1" />
       <path d="M3.5 5V3.5a2 2 0 014 0V5" stroke="currentColor" strokeWidth="1" />
     </svg>
+  );
+}
+
+function Eye() {
+  return (
+    <svg width="12" height="9" viewBox="0 0 12 9" fill="none" aria-hidden>
+      <path d="M1 4.5C2.4 2 4.1 1 6 1s3.6 1 5 3.5C9.6 7 7.9 8 6 8S2.4 7 1 4.5Z" stroke="currentColor" strokeWidth="1" />
+      <circle cx="6" cy="4.5" r="1.4" stroke="currentColor" strokeWidth="1" />
+    </svg>
+  );
+}
+
+function Spinner() {
+  return (
+    <span className="inline-block h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
   );
 }
 

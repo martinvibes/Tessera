@@ -4,10 +4,15 @@ import { getOperator } from "@/lib/server";
 
 export const runtime = "nodejs";
 
+// Realistic testnet drip — Sepolia public faucets typically give ~0.05 ETH/day.
+// Match that so the UI doesn't look mock-funded.
+const TARGET_BALANCE = parseEther("0.05");
+const MIN_BALANCE = parseEther("0.01"); // top up below this
+
 /**
- * Local-dev convenience: sends a tiny amount of ETH from the deployer to the
- * caller's address so they can sign transactions. No-ops if the wallet
- * already has ETH or if we're on a non-local chain.
+ * Local-dev convenience: ensures the caller's address has enough ETH to sign
+ * its own transactions. On local Hardhat we can use `hardhat_setBalance` to
+ * normalise an over-funded balance back down to a realistic faucet amount.
  */
 export async function POST(req: Request) {
   if (process.env.NEXT_PUBLIC_LOCAL_DEV !== "true") {
@@ -29,11 +34,32 @@ export async function POST(req: Request) {
   try {
     const { provider, managed } = getOperator();
     const balance = await provider.getBalance(holder);
-    const minimum = parseEther("0.5");
-    if (balance >= minimum) {
-      return NextResponse.json({ ok: true, skipped: "already funded", balance: balance.toString() });
+
+    // Already in the realistic range — leave alone so the user sees their
+    // gas tick down naturally as they spend.
+    if (balance >= MIN_BALANCE && balance <= TARGET_BALANCE * 2n) {
+      return NextResponse.json({
+        ok: true,
+        skipped: "balance in target range",
+        balance: balance.toString(),
+      });
     }
-    const tx = await managed.sendTransaction({ to: holder, value: parseEther("5") });
+
+    // Over-funded (e.g. left over from an earlier dev session) — normalise
+    // to the realistic target via Hardhat's setBalance cheat code.
+    if (balance > TARGET_BALANCE * 2n) {
+      const hex = "0x" + TARGET_BALANCE.toString(16);
+      await provider.send("hardhat_setBalance", [holder, hex]);
+      return NextResponse.json({
+        ok: true,
+        normalised: true,
+        from: balance.toString(),
+        to: TARGET_BALANCE.toString(),
+      });
+    }
+
+    // Under-funded — top up by sending from the deployer.
+    const tx = await managed.sendTransaction({ to: holder, value: TARGET_BALANCE });
     const receipt = await tx.wait();
     return NextResponse.json({ ok: true, txHash: receipt?.hash ?? tx.hash });
   } catch (e: unknown) {

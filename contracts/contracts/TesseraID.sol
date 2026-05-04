@@ -45,6 +45,33 @@ contract TesseraID is ERC721, Ownable, ZamaEthereumConfig {
         euint16 jurisdiction = FHE.fromExternal(inputJurisdiction, jurisdictionProof);
         euint8 aumBracket = FHE.fromExternal(inputAumBracket, aumProof);
 
+        tokenId = _attestInternal(holder, tier, jurisdiction, aumBracket);
+    }
+
+    /// @notice Owner attests with cleartext inputs that get trivially encrypted on-chain.
+    /// @dev For local-dev / demo paths where the Zama relayer infrastructure isn't reachable.
+    ///      Production deployments should always use {attest} with externally-encrypted inputs.
+    function attestClear(
+        address holder,
+        uint8 tier_,
+        uint16 jurisdiction_,
+        uint8 aumBracket_
+    ) external onlyOwner returns (uint256 tokenId) {
+        if (tokenIdOf[holder] != 0) revert AlreadyAttested(holder);
+
+        euint8 tier = FHE.asEuint8(tier_);
+        euint16 jurisdiction = FHE.asEuint16(jurisdiction_);
+        euint8 aumBracket = FHE.asEuint8(aumBracket_);
+
+        tokenId = _attestInternal(holder, tier, jurisdiction, aumBracket);
+    }
+
+    function _attestInternal(
+        address holder,
+        euint8 tier,
+        euint16 jurisdiction,
+        euint8 aumBracket
+    ) internal returns (uint256 tokenId) {
         tokenId = _nextId++;
         tokenIdOf[holder] = tokenId;
         _attrs[tokenId] = Attrs(tier, jurisdiction, aumBracket);

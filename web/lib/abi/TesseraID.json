@@ -364,6 +364,40 @@
           "internalType": "address",
           "name": "holder",
           "type": "address"
+        },
+        {
+          "internalType": "uint8",
+          "name": "tier_",
+          "type": "uint8"
+        },
+        {
+          "internalType": "uint16",
+          "name": "jurisdiction_",
+          "type": "uint16"
+        },
+        {
+          "internalType": "uint8",
+          "name": "aumBracket_",
+          "type": "uint8"
+        }
+      ],
+      "name": "attestClear",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "tokenId",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "holder",
+          "type": "address"
         }
       ],
       "name": "aumBracketOf",

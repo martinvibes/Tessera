@@ -23,4 +23,11 @@ contract ConfidentialTBill is ERC7984, Ownable, ZamaEthereumConfig {
         minted = FHE.fromExternal(inputAmount, proof);
         _mint(to, minted);
     }
+
+    /// @notice Owner-only mint with cleartext input that gets trivially encrypted on-chain.
+    /// @dev For local-dev / demo paths only.
+    function mintClear(address to, uint64 amount) external onlyOwner returns (euint64 minted) {
+        minted = FHE.asEuint64(amount);
+        _mint(to, minted);
+    }
 }

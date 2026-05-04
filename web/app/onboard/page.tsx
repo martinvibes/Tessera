@@ -6,7 +6,6 @@ import { BrowserProvider } from "ethers";
 import { motion } from "motion/react";
 import { useWeb3Auth, useWeb3AuthConnect } from "@web3auth/modal/react";
 import { ADDR } from "@/lib/contracts";
-import { getFhe } from "@/lib/fhe";
 import { LoginButton } from "@/components/login-button";
 
 const JURISDICTIONS = [
@@ -19,20 +18,20 @@ const JURISDICTIONS = [
 ];
 
 const TIERS = [
-  { value: 1, label: "Tier I", desc: "Institutional / regulated bank" },
-  { value: 2, label: "Tier II", desc: "Corporate / fund manager" },
-  { value: 3, label: "Tier III", desc: "Retail-eligible / accredited" },
+  { value: 1, label: "Tier I", desc: "Regulated bank or major institution" },
+  { value: 2, label: "Tier II", desc: "Corporate or fund manager" },
+  { value: 3, label: "Tier III", desc: "Accredited investor" },
 ];
 
 const AUM_BRACKETS = [
-  { value: 1, label: "< $10 M" },
-  { value: 2, label: "$10 M – $100 M" },
-  { value: 3, label: "$100 M – $1 B" },
-  { value: 4, label: "$1 B – $10 B" },
-  { value: 5, label: "$10 B+" },
+  { value: 1, label: "Under $10M" },
+  { value: 2, label: "$10M – $100M" },
+  { value: 3, label: "$100M – $1B" },
+  { value: 4, label: "$1B – $10B" },
+  { value: 5, label: "$10B+" },
 ];
 
-type Stage = "idle" | "encrypting" | "submitting" | "done";
+type Stage = "idle" | "submitting" | "done";
 
 export default function OnboardPage() {
   const router = useRouter();
@@ -52,25 +51,25 @@ export default function OnboardPage() {
   if (!isConnected) {
     return (
       <Shell>
-        <Stepper current={0} />
-        <div className="grid grid-cols-12 gap-6 pt-12">
+        <div className="grid grid-cols-12 gap-6 pt-8">
           <div className="col-span-12 md:col-span-7">
-            <h1 className="font-display text-[clamp(40px,5vw,72px)] font-light leading-[1] tracking-[-0.02em] text-paper">
-              Sign in
-              <br />
-              <span className="italic text-paper-dim">to begin.</span>
+            <p className="num text-[11px] uppercase tracking-[0.32em] text-marigold">
+              Step 1 of 2
+            </p>
+            <h1 className="mt-4 font-display text-[clamp(40px,5vw,72px)] font-light leading-[1] tracking-[-0.02em] text-paper">
+              First, sign in.
             </h1>
-            <p className="mt-6 max-w-md text-[15px] leading-[1.65] text-paper-dim">
-              Tessera issues your institution a soulbound identity NFT with KYB
-              attributes encrypted on-chain. You&apos;ll need a Web3Auth session
-              to sign the attestation.
+            <p className="mt-6 max-w-md text-[16px] leading-[1.55] text-paper-dim">
+              Tessera uses Web3Auth — sign in with your email or Google account
+              and we&apos;ll generate your wallet automatically. No browser
+              extension or seed phrase to install.
             </p>
             <div className="mt-10">
               <LoginButton />
             </div>
           </div>
-          <aside className="col-span-12 md:col-span-5">
-            <SideRail />
+          <aside className="col-span-12 md:col-span-5 md:pl-10">
+            <Explainer />
           </aside>
         </div>
       </Shell>
@@ -82,12 +81,12 @@ export default function OnboardPage() {
     if (!ready) return;
     setErr(null);
     setTxHash(null);
-    setStage("encrypting");
+    setStage("submitting");
     try {
       if (!provider) throw new Error("No wallet provider available.");
       if (!ADDR.tesseraId) {
         throw new Error(
-          "TesseraID address not configured. Run `npm run dev:local` (auto-deploys to a local node) or `npm run deploy:sepolia` and set NEXT_PUBLIC_TESSERA_ID_ADDRESS in web/.env.local.",
+          "Local stack isn't running. Stop your dev server and run `npm run dev:local` from the repo root.",
         );
       }
 
@@ -95,34 +94,30 @@ export default function OnboardPage() {
       const signer = await ethers.getSigner();
       const holder = await signer.getAddress();
 
-      const fhe = await getFhe(provider as never);
-      const buf = fhe.createEncryptedInput(ADDR.tesseraId, holder);
-      buf.add8(BigInt(tier!));
-      buf.add16(BigInt(jurisdiction!));
-      buf.add8(BigInt(aum!));
-      const enc = await buf.encrypt();
+      // Top up the wallet with local ETH if it doesn't have any. Required so the
+      // user can later sign transactions (decrypts, transfers, etc.) themselves.
+      await fetch("/api/fund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ holder }),
+      });
 
-      const toHex = (b: Uint8Array) =>
-        "0x" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-
-      setStage("submitting");
       const res = await fetch("/api/attest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           holder,
           legalName: name,
-          tier: toHex(enc.handles[0]),
-          jurisdiction: toHex(enc.handles[1]),
-          aum: toHex(enc.handles[2]),
-          proof: toHex(enc.inputProof),
+          tier,
+          jurisdiction,
+          aum,
         }),
       });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? "Attestation failed");
-      setTxHash(body.txHash);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Attestation failed");
+      setTxHash(data.txHash);
       setStage("done");
-      setTimeout(() => router.push("/dashboard"), 2000);
+      setTimeout(() => router.push("/dashboard"), 1500);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
       setStage("idle");
@@ -131,30 +126,33 @@ export default function OnboardPage() {
 
   return (
     <Shell>
-      <Stepper current={1} />
-
-      <div className="grid grid-cols-12 gap-6 gap-y-12 pt-12">
+      <div className="grid grid-cols-12 gap-6 gap-y-12 pt-8">
         <header className="col-span-12 md:col-span-7">
           <p className="num text-[11px] uppercase tracking-[0.32em] text-marigold">
-            § 01 · Tessera Identity
+            Step 2 of 2 · Tell us about your firm
           </p>
           <h1 className="mt-4 font-display text-[clamp(38px,4.4vw,62px)] font-light leading-[1] tracking-[-0.02em] text-paper">
-            Mock KYB
+            Set up your
             <br />
-            <span className="italic text-paper-dim">attestation.</span>
+            <span className="italic text-paper-dim">institutional profile.</span>
           </h1>
-          <p className="mt-5 max-w-lg text-[14.5px] leading-[1.65] text-paper-dim">
-            In production, a regulated KYB provider — Sumsub, Onfido, ComplyAdvantage —
-            supplies these attributes. For the demo you choose them. They are
-            encrypted in your browser before they leave it; only you and your
-            chosen counterparties can decrypt them.
+          <p className="mt-5 max-w-lg text-[15px] leading-[1.6] text-paper-dim">
+            Four questions. The last three are encrypted and stored on-chain
+            — only you and people you authorise can ever see them.
           </p>
         </header>
 
-        <SideRail className="col-span-12 md:col-span-5" />
+        <aside className="col-span-12 md:col-span-5 md:pl-10">
+          <Explainer />
+        </aside>
 
-        <form onSubmit={submit} className="col-span-12 mt-4 grid grid-cols-12 gap-x-6 gap-y-7">
-          <Field label="Legal entity name" caption="Kept off-chain" col="col-span-12 md:col-span-7">
+        <form onSubmit={submit} className="col-span-12 mt-2 grid grid-cols-12 gap-x-6 gap-y-8">
+          <Field
+            n="01"
+            label="What's your firm called?"
+            help="Just for your reference. Stored locally, never sent to the chain."
+            col="col-span-12 md:col-span-7"
+          >
             <input
               type="text"
               value={name}
@@ -164,16 +162,25 @@ export default function OnboardPage() {
             />
           </Field>
 
-          <Field label="Jurisdiction" caption="Encrypted on-chain · ISO-3166" col="col-span-12 md:col-span-5">
+          <Field
+            n="02"
+            label="Where is the firm based?"
+            help="Used by the compliance copilot to check jurisdictional rules. Encrypted on-chain."
+            col="col-span-12 md:col-span-5"
+          >
             <ChipGroup
               options={JURISDICTIONS.map((j) => ({ value: j.code, label: j.label, hint: j.iso }))}
               value={jurisdiction}
               onChange={setJurisdiction}
-              maxVisible={6}
             />
           </Field>
 
-          <Field label="KYB tier" caption="Encrypted on-chain" col="col-span-12 md:col-span-7">
+          <Field
+            n="03"
+            label="What kind of firm are you?"
+            help="The KYB tier determines which counterparties you can trade with. Encrypted on-chain."
+            col="col-span-12 md:col-span-7"
+          >
             <RadioStack
               options={TIERS.map((t) => ({ value: t.value, label: t.label, desc: t.desc }))}
               value={tier}
@@ -181,47 +188,46 @@ export default function OnboardPage() {
             />
           </Field>
 
-          <Field label="AUM bracket" caption="Encrypted on-chain" col="col-span-12 md:col-span-5">
+          <Field
+            n="04"
+            label="How much do you manage?"
+            help="Bracket only — never the actual AUM. Encrypted on-chain."
+            col="col-span-12 md:col-span-5"
+          >
             <ChipGroup
               options={AUM_BRACKETS.map((a) => ({ value: a.value, label: a.label }))}
               value={aum}
               onChange={setAum}
-              maxVisible={5}
             />
           </Field>
 
-          <div className="col-span-12 mt-6 flex flex-wrap items-center gap-6 border-t border-rule pt-6">
+          <div className="col-span-12 mt-4 flex flex-wrap items-center gap-6 border-t border-rule pt-6">
             <button
               type="submit"
-              disabled={!ready || stage === "encrypting" || stage === "submitting"}
+              disabled={!ready || stage === "submitting"}
               className="num inline-flex items-center gap-3 rounded-none border border-marigold bg-marigold px-7 py-3.5 text-[12px] font-medium uppercase tracking-[0.2em] text-ink transition-colors hover:bg-marigold-deep hover:border-marigold-deep disabled:cursor-not-allowed disabled:bg-rule disabled:border-rule disabled:text-paper-faint"
             >
-              {stage === "encrypting" && (
-                <>
-                  <Spinner /> Encrypting locally
-                </>
-              )}
               {stage === "submitting" && (
                 <>
-                  <Spinner /> Submitting attestation
+                  <Spinner /> Minting your identity NFT
                 </>
               )}
               {stage === "done" && (
                 <>
-                  <Check /> Attested
+                  <Check /> Done — opening dashboard
                 </>
               )}
               {stage === "idle" && (
                 <>
-                  Encrypt &amp; submit
+                  Mint my Tessera identity
                   <Arrow />
                 </>
               )}
             </button>
 
-            <p className="num max-w-md text-[10.5px] uppercase tracking-[0.2em] text-paper-faint">
-              Your attributes are encrypted with Zama FHE before they leave this browser.
-              The settlement contract never sees plaintext.
+            <p className="max-w-md text-[12.5px] leading-snug text-paper-faint">
+              Clicking this submits a transaction that mints your soulbound identity NFT.
+              The three encrypted attributes go on-chain — your firm name doesn&apos;t.
             </p>
           </div>
 
@@ -233,9 +239,9 @@ export default function OnboardPage() {
           )}
           {txHash && (
             <div className="col-span-12 border-l-2 border-sage bg-sage/5 p-4">
-              <p className="num text-[10px] uppercase tracking-[0.22em] text-sage">Attested</p>
+              <p className="num text-[10px] uppercase tracking-[0.22em] text-sage">Identity minted</p>
               <p className="mt-1 text-[14px] text-paper">
-                Tx <span className="num">{txHash.slice(0, 14)}…{txHash.slice(-6)}</span>. Redirecting…
+                Tx <span className="num">{txHash.slice(0, 14)}…{txHash.slice(-6)}</span>. Redirecting to your dashboard…
               </p>
             </div>
           )}
@@ -260,93 +266,74 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Stepper({ current }: { current: number }) {
-  const steps = ["Sign in", "Mock KYB", "Soulbound NFT", "Trade"];
+function Explainer() {
   return (
-    <ol className="num flex flex-wrap items-center gap-4 text-[10px] uppercase tracking-[0.24em] text-paper-faint">
-      <li className="text-marigold">Onboarding</li>
-      <span className="h-px flex-1 max-w-12 bg-rule" />
-      {steps.map((s, i) => {
-        const active = i <= current;
-        return (
-          <li key={s} className="flex items-center gap-3">
-            <span
-              className={`grid h-5 w-5 place-items-center border ${
-                active ? "border-marigold text-marigold" : "border-rule-2 text-paper-faint"
-              }`}
-            >
-              {String(i + 1).padStart(2, "0")[1]}
-            </span>
-            <span className={active ? "text-paper" : ""}>{s}</span>
-            {i < steps.length - 1 && <span className="ml-1 text-rule-2">·</span>}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function SideRail({ className = "" }: { className?: string }) {
-  return (
-    <aside className={`${className} space-y-5 md:pl-10`}>
-      <Spec k="Standard" v="ERC-7984" />
-      <Spec k="Identity" v="Soulbound · ERC-721" />
-      <Spec k="Encryption" v="Zama FHEVM (euint8 / 16 / 64)" />
-      <Spec k="Attestor" v="Tessera operator key" />
+    <div className="space-y-5 border-l border-rule pl-6">
+      <p className="num text-[10px] uppercase tracking-[0.28em] text-paper-faint">
+        What you&apos;re about to do
+      </p>
+      <ol className="space-y-5">
+        <Bullet n="1" t="Sign in">
+          We use Web3Auth — sign in with email or Google. A wallet is generated for you.
+        </Bullet>
+        <Bullet n="2" t="Tell us four things">
+          Firm name, country, type, and AUM bracket. Three are encrypted on-chain.
+        </Bullet>
+        <Bullet n="3" t="Mint your identity NFT">
+          A soulbound, non-transferable token that proves you&apos;re an onboarded institution.
+        </Bullet>
+        <Bullet n="4" t="Get test balances">
+          On the dashboard, claim some cTBILL and cUSDC from the local faucet so you can play with the rail.
+        </Bullet>
+      </ol>
       <div className="border-t border-rule pt-5">
-        <p className="num text-[10px] uppercase tracking-[0.24em] text-paper-faint">
-          What gets encrypted
+        <p className="num text-[10px] uppercase tracking-[0.28em] text-paper-faint">
+          Privacy guarantees
         </p>
         <ul className="mt-3 space-y-2 text-[13px] leading-snug text-paper-dim">
-          <li>· KYB tier</li>
-          <li>· Jurisdiction (ISO-3166)</li>
-          <li>· AUM bracket</li>
+          <li>· Three of the four answers are stored encrypted (FHE).</li>
+          <li>· The chain sees the ciphertext. Only you (and people you grant) can decrypt.</li>
+          <li>· The contract itself can&apos;t read them in plaintext either.</li>
         </ul>
       </div>
-      <div className="border-t border-rule pt-5">
-        <p className="num text-[10px] uppercase tracking-[0.24em] text-paper-faint">
-          What stays off-chain
-        </p>
-        <ul className="mt-3 space-y-2 text-[13px] leading-snug text-paper-dim">
-          <li>· Legal entity name</li>
-          <li>· Beneficial ownership</li>
-          <li>· KYB documents</li>
-        </ul>
-      </div>
-    </aside>
-  );
-}
-
-function Spec({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-rule/60 pb-2.5">
-      <span className="num text-[10px] uppercase tracking-[0.22em] text-paper-faint">{k}</span>
-      <span className="text-right text-[14px] text-paper">{v}</span>
     </div>
   );
 }
 
+function Bullet({ n, t, children }: { n: string; t: string; children: React.ReactNode }) {
+  return (
+    <li className="grid grid-cols-[auto_1fr] items-baseline gap-3">
+      <span className="num grid h-5 w-5 place-items-center border border-rule-2 text-[10px] text-paper-faint">
+        {n}
+      </span>
+      <div>
+        <p className="text-[13px] font-medium text-paper">{t}</p>
+        <p className="mt-1 text-[12.5px] leading-snug text-paper-dim">{children}</p>
+      </div>
+    </li>
+  );
+}
+
 function Field({
+  n,
   label,
-  caption,
+  help,
   children,
   col,
 }: {
+  n: string;
   label: string;
-  caption?: string;
+  help?: string;
   children: React.ReactNode;
   col: string;
 }) {
   return (
     <div className={col}>
-      <div className="mb-3 flex items-baseline justify-between">
-        <span className="num text-[10px] uppercase tracking-[0.24em] text-paper-faint">{label}</span>
-        {caption && (
-          <span className="num text-[10px] uppercase tracking-[0.18em] text-paper-ghost">
-            {caption}
-          </span>
-        )}
+      <div className="mb-2 flex items-baseline gap-3">
+        <span className="num text-[10px] uppercase tracking-[0.24em] text-marigold">{n}</span>
+        <span className="font-display text-[19px] font-light text-paper">{label}</span>
       </div>
+      {help && <p className="mb-3 text-[12.5px] leading-snug text-paper-faint">{help}</p>}
       {children}
     </div>
   );
@@ -360,7 +347,6 @@ function ChipGroup<T extends number>({
   options: { value: T; label: string; hint?: string }[];
   value: T | null;
   onChange: (v: T) => void;
-  maxVisible?: number;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -420,9 +406,7 @@ function RadioStack<T extends number>({
           >
             <div>
               <p className="font-display text-[18px] font-light text-paper">{o.label}</p>
-              {o.desc && (
-                <p className="mt-0.5 text-[12.5px] text-paper-dim">{o.desc}</p>
-              )}
+              {o.desc && <p className="mt-0.5 text-[12.5px] text-paper-dim">{o.desc}</p>}
             </div>
             <span
               className={`grid h-4 w-4 place-items-center border ${

@@ -650,6 +650,30 @@
           "type": "address"
         },
         {
+          "internalType": "uint64",
+          "name": "amount",
+          "type": "uint64"
+        }
+      ],
+      "name": "mintClear",
+      "outputs": [
+        {
+          "internalType": "euint64",
+          "name": "minted",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
           "internalType": "externalEuint64",
           "name": "inputAmount",
           "type": "bytes32"

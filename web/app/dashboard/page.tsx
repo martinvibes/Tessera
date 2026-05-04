@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { BrowserProvider, Contract } from "ethers";
+import { BrowserProvider, Contract, formatEther } from "ethers";
 import {
   useWeb3Auth,
   useWeb3AuthConnect,
@@ -13,7 +13,7 @@ import { ADDR, TESSERA_ID_ABI, TBILL_ABI, USDC_ABI } from "@/lib/contracts";
 import { LoginButton } from "@/components/login-button";
 
 type Position = {
-  symbol: string;
+  symbol: "cTBILL" | "cUSDC";
   name: string;
   address: string;
   balanceHandle: string | null;
@@ -25,53 +25,32 @@ type IdentityState =
   | { status: "missing" }
   | { status: "attested"; tokenId: bigint };
 
+const ZERO_HANDLE = "0x0000000000000000000000000000000000000000000000000000000000000000";
+
 export default function Dashboard() {
   const { provider } = useWeb3Auth();
   const { isConnected } = useWeb3AuthConnect();
   const { userInfo } = useWeb3AuthUser();
   const [account, setAccount] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
+  const [ethBalance, setEthBalance] = useState<bigint | null>(null);
   const [identity, setIdentity] = useState<IdentityState>({ status: "loading" });
   const [positions, setPositions] = useState<Position[]>([]);
   const [refresh, setRefresh] = useState(0);
   const [now, setNow] = useState(() => new Date());
+  const [faucet, setFaucet] = useState<{ busy: boolean; err: string | null; tx: string | null }>({
+    busy: false,
+    err: null,
+    tx: null,
+  });
 
-  // realtime clock for the top-left panel
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  useEffect(() => {
-    if (!isConnected || !provider) return;
-    setIdentity({ status: "loading" });
-    setPositions([]);
-    let cancelled = false;
-    (async () => {
-      const ethers = new BrowserProvider(provider as never);
-      const signer = await ethers.getSigner();
-      const me = await signer.getAddress();
-      const network = await ethers.getNetwork();
-      if (cancelled) return;
-      setAccount(me);
-      setChainId(Number(network.chainId));
-
-      // identity
-      if (ADDR.tesseraId) {
-        try {
-          const tessera = new Contract(ADDR.tesseraId, TESSERA_ID_ABI, signer);
-          const id: bigint = await tessera.tokenIdOf(me);
-          if (!cancelled) {
-            setIdentity(id > 0n ? { status: "attested", tokenId: id } : { status: "missing" });
-          }
-        } catch {
-          if (!cancelled) setIdentity({ status: "missing" });
-        }
-      } else {
-        if (!cancelled) setIdentity({ status: "missing" });
-      }
-
-      // positions
+  const reloadPositions = useCallback(
+    async (signer: import("ethers").Signer, me: string) => {
       const next: Position[] = [];
       for (const [symbol, name, address, abi] of [
         ["cTBILL", "Confidential T-Bill", ADDR.tbill, TBILL_ABI],
@@ -97,16 +76,84 @@ export default function Dashboard() {
             name,
             address,
             balanceHandle: null,
-            error: e instanceof Error ? e.message : String(e),
+            error: e instanceof Error ? e.message.slice(0, 80) : "read failed",
           });
         }
       }
-      if (!cancelled) setPositions(next);
+      setPositions(next);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!isConnected || !provider) return;
+    setIdentity({ status: "loading" });
+    setPositions([]);
+    let cancelled = false;
+    (async () => {
+      const ethers = new BrowserProvider(provider as never);
+      const signer = await ethers.getSigner();
+      const me = await signer.getAddress();
+      const network = await ethers.getNetwork();
+      if (cancelled) return;
+      setAccount(me);
+      setChainId(Number(network.chainId));
+
+      // Auto-fund the wallet on local dev so user has gas for follow-up txs.
+      if (process.env.NEXT_PUBLIC_LOCAL_DEV === "true") {
+        await fetch("/api/fund", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ holder: me }),
+        }).catch(() => {});
+      }
+
+      const balance = await ethers.getBalance(me).catch(() => null);
+      if (!cancelled) setEthBalance(balance);
+
+      // Identity
+      if (ADDR.tesseraId) {
+        try {
+          const tessera = new Contract(ADDR.tesseraId, TESSERA_ID_ABI, signer);
+          const id: bigint = await tessera.tokenIdOf(me);
+          if (!cancelled) {
+            setIdentity(id > 0n ? { status: "attested", tokenId: id } : { status: "missing" });
+          }
+        } catch {
+          if (!cancelled) setIdentity({ status: "missing" });
+        }
+      } else {
+        if (!cancelled) setIdentity({ status: "missing" });
+      }
+
+      if (!cancelled) await reloadPositions(signer, me);
     })();
     return () => {
       cancelled = true;
     };
-  }, [isConnected, provider, refresh]);
+  }, [isConnected, provider, refresh, reloadPositions]);
+
+  async function claimFaucet() {
+    if (!account) return;
+    setFaucet({ busy: true, err: null, tx: null });
+    try {
+      const res = await fetch("/api/faucet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ holder: account }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Faucet failed");
+      setFaucet({ busy: false, err: null, tx: data.txs?.[0] ?? null });
+      setRefresh((n) => n + 1);
+    } catch (e: unknown) {
+      setFaucet({
+        busy: false,
+        err: e instanceof Error ? e.message : String(e),
+        tx: null,
+      });
+    }
+  }
 
   if (!isConnected) {
     return (
@@ -142,6 +189,12 @@ export default function Dashboard() {
                 <span className="mx-2 text-rule-2">·</span>chain {chainId}
               </>
             )}
+            {ethBalance !== null && (
+              <>
+                <span className="mx-2 text-rule-2">·</span>
+                {Number(formatEther(ethBalance)).toFixed(2)} ETH
+              </>
+            )}
             <span className="mx-2 text-rule-2">·</span>
             {now.toLocaleTimeString("en-GB", { hour12: false })}
           </p>
@@ -155,7 +208,7 @@ export default function Dashboard() {
       </header>
 
       <div className="mx-auto grid max-w-[1320px] grid-cols-12 gap-6">
-        {/* Left column — identity + book */}
+        {/* Left column — identity + faucet */}
         <div className="col-span-12 space-y-6 md:col-span-4">
           <Panel title="Tessera Identity" tag="§ Soulbound">
             {identity.status === "loading" && <Skeleton lines={2} />}
@@ -168,15 +221,9 @@ export default function Dashboard() {
                   Attested · soulbound
                 </p>
                 <dl className="mt-5 space-y-2.5 text-[12.5px] text-paper-dim">
-                  <DRow k="Tier">
-                    <Encrypted />
-                  </DRow>
-                  <DRow k="Jurisdiction">
-                    <Encrypted />
-                  </DRow>
-                  <DRow k="AUM bracket">
-                    <Encrypted />
-                  </DRow>
+                  <DRow k="Tier"><Encrypted /></DRow>
+                  <DRow k="Jurisdiction"><Encrypted /></DRow>
+                  <DRow k="AUM bracket"><Encrypted /></DRow>
                 </dl>
               </div>
             )}
@@ -196,9 +243,14 @@ export default function Dashboard() {
             )}
           </Panel>
 
-          <Panel title="Recent activity" tag="§ Audit">
-            <ActivityEmpty />
-          </Panel>
+          <FaucetPanel
+            account={account}
+            state={faucet}
+            onClaim={claimFaucet}
+            anyBalance={positions.some(
+              (p) => p.balanceHandle && p.balanceHandle !== ZERO_HANDLE,
+            )}
+          />
         </div>
 
         {/* Right column — positions + market */}
@@ -214,10 +266,7 @@ export default function Dashboard() {
             </div>
           </Panel>
 
-          <Panel
-            title="Order book · cTBILL ↔ cUSDC"
-            tag="§ FHE matcher (Plan 2)"
-          >
+          <Panel title="Order book · cTBILL ↔ cUSDC" tag="§ FHE matcher (Plan 2)">
             <BookEmpty />
           </Panel>
         </div>
@@ -245,13 +294,9 @@ function Panel({
       className="border border-rule bg-ink-2/40"
     >
       <div className="flex items-baseline justify-between border-b border-rule/80 px-5 py-3">
-        <p className="num text-[10.5px] uppercase tracking-[0.26em] text-paper">
-          {title}
-        </p>
+        <p className="num text-[10.5px] uppercase tracking-[0.26em] text-paper">{title}</p>
         {tag && (
-          <p className="num text-[9.5px] uppercase tracking-[0.22em] text-paper-faint">
-            {tag}
-          </p>
+          <p className="num text-[9.5px] uppercase tracking-[0.22em] text-paper-faint">{tag}</p>
         )}
       </div>
       <div className="px-5 py-5">{children}</div>
@@ -259,32 +304,75 @@ function Panel({
   );
 }
 
+function FaucetPanel({
+  account,
+  state,
+  onClaim,
+  anyBalance,
+}: {
+  account: string | null;
+  state: { busy: boolean; err: string | null; tx: string | null };
+  onClaim: () => void;
+  anyBalance: boolean;
+}) {
+  return (
+    <Panel title="Test issuer" tag="§ Local faucet">
+      <p className="text-[13px] leading-[1.55] text-paper-dim">
+        {anyBalance
+          ? "You already hold encrypted positions. Click again to top up another batch from the mock issuer."
+          : "Mint yourself test cTBILL and cUSDC from the mock issuer — these are real encrypted ERC-7984 balances on the local chain."}
+      </p>
+      <button
+        onClick={onClaim}
+        disabled={state.busy || !account}
+        className="num mt-5 inline-flex items-center gap-2 border border-marigold bg-marigold px-4 py-2.5 text-[10.5px] font-medium uppercase tracking-[0.22em] text-ink transition-colors hover:bg-marigold-deep hover:border-marigold-deep disabled:cursor-not-allowed disabled:bg-rule disabled:border-rule disabled:text-paper-faint"
+      >
+        {state.busy ? (
+          <>
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink" />
+            Minting…
+          </>
+        ) : (
+          <>
+            {anyBalance ? "Mint another batch" : "Claim test balances"} <Arrow />
+          </>
+        )}
+      </button>
+      {state.tx && (
+        <p className="num mt-3 text-[10px] uppercase tracking-[0.22em] text-sage">
+          minted · {state.tx.slice(0, 14)}…
+        </p>
+      )}
+      {state.err && (
+        <p className="num mt-3 max-w-full break-words text-[10px] uppercase tracking-[0.18em] text-crimson">
+          {state.err}
+        </p>
+      )}
+    </Panel>
+  );
+}
+
 function PositionCard({ p }: { p: Position }) {
+  const has = p.balanceHandle && p.balanceHandle !== ZERO_HANDLE;
   return (
     <article className="relative overflow-hidden border border-rule-2 bg-ink p-5">
       <div className="flex items-baseline justify-between">
-        <span className="font-display text-[20px] font-light text-paper">
-          {p.symbol}
-        </span>
+        <span className="font-display text-[20px] font-light text-paper">{p.symbol}</span>
         <span className="num text-[10px] uppercase tracking-[0.22em] text-paper-faint">
           ERC-7984
         </span>
       </div>
-      <p className="num mt-1 text-[10.5px] uppercase tracking-[0.18em] text-paper-faint">
-        {p.name}
-      </p>
+      <p className="num mt-1 text-[10.5px] uppercase tracking-[0.18em] text-paper-faint">{p.name}</p>
 
       <div className="relative mt-6">
         {p.error ? (
           <div>
-            <p className="font-display text-[28px] font-light leading-none text-paper-faint">
-              —
-            </p>
-            <p className="num mt-2 text-[9.5px] uppercase tracking-[0.2em] text-crimson">
+            <p className="font-display text-[28px] font-light leading-none text-paper-faint">—</p>
+            <p className="num mt-2 max-w-full break-words text-[9.5px] uppercase tracking-[0.2em] text-crimson">
               {p.error}
             </p>
           </div>
-        ) : p.balanceHandle ? (
+        ) : has ? (
           <div>
             <div className="relative inline-block">
               <p className="font-display text-[40px] font-light leading-none tracking-tight text-paper">
@@ -297,13 +385,20 @@ function PositionCard({ p }: { p: Position }) {
             </p>
             <p
               className="num mt-3 max-w-full truncate text-[10px] tracking-[0.05em] text-paper-faint"
-              title={p.balanceHandle}
+              title={p.balanceHandle ?? undefined}
             >
               {p.balanceHandle}
             </p>
           </div>
         ) : (
-          <Skeleton lines={2} />
+          <div>
+            <p className="font-display text-[40px] font-light leading-none tracking-tight text-paper-faint">
+              0
+            </p>
+            <p className="num mt-3 text-[10.5px] uppercase tracking-[0.2em] text-paper-faint">
+              No balance · use the faucet
+            </p>
+          </div>
         )}
       </div>
     </article>
@@ -320,28 +415,19 @@ function DeployBanner() {
         <div className="text-[13.5px] leading-[1.6] text-paper">
           <p className="font-medium">Contracts not yet deployed.</p>
           <p className="mt-1 text-paper-dim">
-            Run{" "}
+            Stop your dev server and run{" "}
             <code className="num bg-ink-3 px-1.5 py-0.5 text-[12px] text-marigold">
               npm run dev:local
             </code>{" "}
-            to spin up a local Hardhat node, deploy the three contracts, and write the
-            addresses into{" "}
+            from the repo root. It spins up a local Hardhat node, deploys the
+            three contracts, syncs ABIs, writes addresses into{" "}
             <code className="num bg-ink-3 px-1.5 py-0.5 text-[12px]">
               web/.env.local
-            </code>{" "}
-            automatically. Then reload this page.
+            </code>
+            , then restarts the dev server.
           </p>
         </div>
       </div>
-    </div>
-  );
-}
-
-function ActivityEmpty() {
-  return (
-    <div className="flex items-center gap-3 py-2 text-[13px] text-paper-faint">
-      <Pulse />
-      <span>Watching for on-chain events…</span>
     </div>
   );
 }
@@ -379,9 +465,7 @@ function BookEmpty() {
           <div className="num bg-ink-2 px-3 py-2.5 text-right text-[12px] text-paper-faint">
             {r.px}
           </div>
-          <div className="num bg-ink-2 px-3 py-2.5 text-right text-[12px] text-paper">
-            {r.qty}
-          </div>
+          <div className="num bg-ink-2 px-3 py-2.5 text-right text-[12px] text-paper">{r.qty}</div>
         </div>
       ))}
       <p className="num col-span-3 bg-ink-2 px-3 py-3 text-center text-[10px] uppercase tracking-[0.22em] text-paper-faint">
@@ -454,14 +538,5 @@ function Arrow() {
         strokeLinecap="square"
       />
     </svg>
-  );
-}
-
-function Pulse() {
-  return (
-    <span className="relative flex h-2 w-2">
-      <span className="absolute inset-0 animate-ping rounded-full bg-sage opacity-60" />
-      <span className="relative h-2 w-2 rounded-full bg-sage" />
-    </span>
   );
 }

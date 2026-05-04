@@ -39,12 +39,12 @@ export async function POST(req: Request) {
   try {
     const tbillAddress = requireAddress("ConfidentialTBill", process.env.TBILL_ADDRESS);
     const usdcAddress = requireAddress("ConfidentialUSDC", process.env.USDC_ADDRESS);
-    const { wallet } = getOperator();
+    const { managed } = getOperator();
 
-    const tbill = new Contract(tbillAddress, TBILL_ABI, wallet);
-    const usdc = new Contract(usdcAddress, USDC_ABI, wallet);
+    // Use the nonce-managed signer so back-to-back faucet hits don't reuse a nonce.
+    const tbill = new Contract(tbillAddress, TBILL_ABI, managed);
+    const usdc = new Contract(usdcAddress, USDC_ABI, managed);
 
-    // Sequential to avoid nonce races on local Hardhat.
     const tx1 = await tbill.mintClear(holder, tbillAmount);
     await tx1.wait();
     const tx2 = await usdc.mintClear(holder, usdcAmount);

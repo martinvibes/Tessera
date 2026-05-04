@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { BrowserProvider, Contract, formatEther } from "ethers";
+import { BrowserProvider, Contract, JsonRpcProvider, formatEther } from "ethers";
 import {
   useWeb3Auth,
   useWeb3AuthConnect,
@@ -11,6 +11,14 @@ import {
 } from "@web3auth/modal/react";
 import { ADDR, TESSERA_ID_ABI, TBILL_ABI, USDC_ABI } from "@/lib/contracts";
 import { LoginButton } from "@/components/login-button";
+
+// Read directly from the configured RPC. Web3Auth's BrowserProvider may target a
+// different chain than the contracts are deployed on (e.g. Sepolia vs local
+// Hardhat), which produced "could not decode result data" errors. Using a
+// dedicated reader keeps reads pinned to the chain the operator deployed to.
+const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? "http://127.0.0.1:8545";
+const CHAIN_NAME = process.env.NEXT_PUBLIC_CHAIN_NAME ?? "Local";
+const reader = new JsonRpcProvider(RPC_URL);
 
 type Position = {
   symbol: "cTBILL" | "cUSDC";
@@ -49,41 +57,38 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
-  const reloadPositions = useCallback(
-    async (signer: import("ethers").Signer, me: string) => {
-      const next: Position[] = [];
-      for (const [symbol, name, address, abi] of [
-        ["cTBILL", "Confidential T-Bill", ADDR.tbill, TBILL_ABI],
-        ["cUSDC", "Confidential USDC", ADDR.usdc, USDC_ABI],
-      ] as const) {
-        if (!address) {
-          next.push({
-            symbol,
-            name,
-            address: "",
-            balanceHandle: null,
-            error: "address not configured",
-          });
-          continue;
-        }
-        try {
-          const token = new Contract(address, abi, signer);
-          const handle: string = await token.confidentialBalanceOf(me);
-          next.push({ symbol, name, address, balanceHandle: handle, error: null });
-        } catch (e: unknown) {
-          next.push({
-            symbol,
-            name,
-            address,
-            balanceHandle: null,
-            error: e instanceof Error ? e.message.slice(0, 80) : "read failed",
-          });
-        }
+  const reloadPositions = useCallback(async (me: string) => {
+    const next: Position[] = [];
+    for (const [symbol, name, address, abi] of [
+      ["cTBILL", "Confidential T-Bill", ADDR.tbill, TBILL_ABI],
+      ["cUSDC", "Confidential USDC", ADDR.usdc, USDC_ABI],
+    ] as const) {
+      if (!address) {
+        next.push({
+          symbol,
+          name,
+          address: "",
+          balanceHandle: null,
+          error: "address not configured",
+        });
+        continue;
       }
-      setPositions(next);
-    },
-    [],
-  );
+      try {
+        const token = new Contract(address, abi, reader);
+        const handle: string = await token.confidentialBalanceOf(me);
+        next.push({ symbol, name, address, balanceHandle: handle, error: null });
+      } catch (e: unknown) {
+        next.push({
+          symbol,
+          name,
+          address,
+          balanceHandle: null,
+          error: e instanceof Error ? e.message.slice(0, 80) : "read failed",
+        });
+      }
+    }
+    setPositions(next);
+  }, []);
 
   useEffect(() => {
     if (!isConnected || !provider) return;
@@ -91,15 +96,20 @@ export default function Dashboard() {
     setPositions([]);
     let cancelled = false;
     (async () => {
-      const ethers = new BrowserProvider(provider as never);
-      const signer = await ethers.getSigner();
+      // Resolve the user's address from the wallet provider.
+      const walletProvider = new BrowserProvider(provider as never);
+      const signer = await walletProvider.getSigner();
       const me = await signer.getAddress();
-      const network = await ethers.getNetwork();
       if (cancelled) return;
       setAccount(me);
-      setChainId(Number(network.chainId));
 
-      // Auto-fund the wallet on local dev so user has gas for follow-up txs.
+      // Read network + balance from the *reader* (local RPC), not the wallet —
+      // the wallet may be on a different chain than the contracts.
+      const net = await reader.getNetwork().catch(() => null);
+      if (!cancelled) setChainId(net ? Number(net.chainId) : null);
+
+      // Auto-fund on local dev so the user has gas for any signed txs they
+      // attempt later. No-ops if already funded.
       if (process.env.NEXT_PUBLIC_LOCAL_DEV === "true") {
         await fetch("/api/fund", {
           method: "POST",
@@ -108,13 +118,13 @@ export default function Dashboard() {
         }).catch(() => {});
       }
 
-      const balance = await ethers.getBalance(me).catch(() => null);
+      const balance = await reader.getBalance(me).catch(() => null);
       if (!cancelled) setEthBalance(balance);
 
-      // Identity
+      // Identity (read via local RPC)
       if (ADDR.tesseraId) {
         try {
-          const tessera = new Contract(ADDR.tesseraId, TESSERA_ID_ABI, signer);
+          const tessera = new Contract(ADDR.tesseraId, TESSERA_ID_ABI, reader);
           const id: bigint = await tessera.tokenIdOf(me);
           if (!cancelled) {
             setIdentity(id > 0n ? { status: "attested", tokenId: id } : { status: "missing" });
@@ -126,7 +136,7 @@ export default function Dashboard() {
         if (!cancelled) setIdentity({ status: "missing" });
       }
 
-      if (!cancelled) await reloadPositions(signer, me);
+      if (!cancelled) await reloadPositions(me);
     })();
     return () => {
       cancelled = true;
@@ -174,37 +184,77 @@ export default function Dashboard() {
 
   return (
     <section className="relative w-full px-6 py-10 md:px-10 md:py-14">
-      <header className="mx-auto mb-10 flex max-w-[1320px] items-end justify-between gap-6 border-b border-rule pb-8">
-        <div>
-          <p className="num text-[11px] uppercase tracking-[0.32em] text-marigold">
-            Treasury · Live
-          </p>
-          <h1 className="mt-3 font-display text-[clamp(34px,4vw,52px)] font-light leading-[1] tracking-[-0.02em] text-paper">
-            {(userInfo?.name as string | undefined)?.split(" ")[0] ?? "Dashboard"}
-          </h1>
-          <p className="num mt-3 text-[11px] tracking-[0.18em] text-paper-faint">
-            {account ? <>{account.slice(0, 12)}…{account.slice(-8)}</> : "—"}
-            {chainId !== null && (
-              <>
-                <span className="mx-2 text-rule-2">·</span>chain {chainId}
-              </>
-            )}
-            {ethBalance !== null && (
-              <>
-                <span className="mx-2 text-rule-2">·</span>
-                {Number(formatEther(ethBalance)).toFixed(2)} ETH
-              </>
-            )}
-            <span className="mx-2 text-rule-2">·</span>
-            {now.toLocaleTimeString("en-GB", { hour12: false })}
-          </p>
+      <header className="mx-auto mb-10 max-w-[1320px] border-b border-rule pb-8">
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div>
+            <p className="num text-[11px] uppercase tracking-[0.32em] text-marigold">
+              Treasury · Live
+            </p>
+            <h1 className="mt-3 font-display text-[clamp(34px,4vw,52px)] font-light leading-[1] tracking-[-0.02em] text-paper">
+              {(userInfo?.name as string | undefined)?.split(" ")[0] ?? "Dashboard"}
+            </h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setRefresh((n) => n + 1)}
+              className="num inline-flex items-center gap-2 border border-rule px-3 py-2 text-[11px] uppercase tracking-[0.22em] text-paper-dim transition-colors hover:border-paper-faint hover:text-paper"
+            >
+              <Refresh /> Refresh
+            </button>
+            <span className="num text-[13px] tabular-nums text-paper">
+              {now.toLocaleTimeString("en-GB", { hour12: false })}
+            </span>
+          </div>
         </div>
-        <button
-          onClick={() => setRefresh((n) => n + 1)}
-          className="num inline-flex items-center gap-2 border border-rule px-3 py-2 text-[10px] uppercase tracking-[0.22em] text-paper-dim transition-colors hover:border-paper-faint hover:text-paper"
-        >
-          <Refresh /> Refresh
-        </button>
+
+        <dl className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Stat
+            label="Wallet"
+            value={
+              account ? (
+                <CopyAddress address={account} />
+              ) : (
+                <span className="text-paper-faint">—</span>
+              )
+            }
+          />
+          <Stat
+            label="Network"
+            value={
+              <span className="inline-flex items-center gap-2.5">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inset-0 animate-ping rounded-full bg-sage opacity-50" />
+                  <span className="relative h-2 w-2 rounded-full bg-sage" />
+                </span>
+                <span className="font-display text-[18px] font-light text-paper">
+                  {CHAIN_NAME}
+                </span>
+                {chainId !== null && (
+                  <span className="num text-[11px] tracking-[0.06em] text-paper-faint">
+                    · chain {chainId}
+                  </span>
+                )}
+              </span>
+            }
+          />
+          <Stat
+            label="Balance"
+            value={
+              ethBalance !== null ? (
+                <span className="num inline-flex items-baseline gap-1.5">
+                  <span className="font-display text-[22px] font-light text-paper">
+                    {Number(formatEther(ethBalance)).toFixed(3)}
+                  </span>
+                  <span className="text-[11px] uppercase tracking-[0.22em] text-paper-faint">
+                    ETH
+                  </span>
+                </span>
+              ) : (
+                <span className="text-paper-faint">—</span>
+              )
+            }
+          />
+        </dl>
       </header>
 
       <div className="mx-auto grid max-w-[1320px] grid-cols-12 gap-6">
@@ -276,6 +326,41 @@ export default function Dashboard() {
 }
 
 /* ──────────────────────── pieces ──────────────────────── */
+
+function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="border border-rule bg-ink-2/40 px-5 py-4">
+      <dt className="num text-[10px] uppercase tracking-[0.26em] text-paper-faint">
+        {label}
+      </dt>
+      <dd className="mt-2 text-[15px] text-paper">{value}</dd>
+    </div>
+  );
+}
+
+function CopyAddress({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(address);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1300);
+        } catch {}
+      }}
+      className="num group flex items-center gap-2 text-left text-paper transition-colors hover:text-marigold"
+      aria-label="Copy wallet address"
+    >
+      <span className="text-[14px] tracking-[0.04em]">
+        {address.slice(0, 8)}…{address.slice(-6)}
+      </span>
+      <span className="text-[10px] uppercase tracking-[0.22em] text-paper-faint group-hover:text-marigold">
+        {copied ? "copied" : "copy"}
+      </span>
+    </button>
+  );
+}
 
 function Panel({
   title,

@@ -27,13 +27,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { provider, wallet } = getOperator();
+    const { provider, managed } = getOperator();
     const balance = await provider.getBalance(holder);
     const minimum = parseEther("0.5");
     if (balance >= minimum) {
       return NextResponse.json({ ok: true, skipped: "already funded", balance: balance.toString() });
     }
-    const tx = await wallet.sendTransaction({ to: holder, value: parseEther("5") });
+    const tx = await managed.sendTransaction({ to: holder, value: parseEther("5") });
     const receipt = await tx.wait();
     return NextResponse.json({ ok: true, txHash: receipt?.hash ?? tx.hash });
   } catch (e: unknown) {

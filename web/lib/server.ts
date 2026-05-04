@@ -1,11 +1,16 @@
-import { JsonRpcProvider, Wallet } from "ethers";
+import { JsonRpcProvider, Wallet, NonceManager } from "ethers";
+
+let cached: { provider: JsonRpcProvider; wallet: Wallet; managed: NonceManager } | null = null;
 
 /**
- * Returns a (provider, deployer wallet) pair for server-side contract calls.
- * Throws a clear message if the env vars aren't configured — surfaced to the
- * client so the user knows what to set.
+ * Returns a long-lived (provider, wallet, nonce-managed signer) for server-side
+ * contract calls. The NonceManager keeps nonces consistent across rapid
+ * sequential requests so we don't get "nonce already used" errors when the
+ * faucet is clicked multiple times.
  */
 export function getOperator() {
+  if (cached) return cached;
+
   const rpc = process.env.RPC_URL;
   const pk = process.env.TESSERA_DEPLOYER_PK;
   if (!rpc || !pk) {
@@ -15,7 +20,9 @@ export function getOperator() {
   }
   const provider = new JsonRpcProvider(rpc);
   const wallet = new Wallet(pk, provider);
-  return { provider, wallet };
+  const managed = new NonceManager(wallet);
+  cached = { provider, wallet, managed };
+  return cached;
 }
 
 export function requireAddress(name: string, value: string | undefined) {

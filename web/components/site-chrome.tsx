@@ -94,13 +94,14 @@ function Mark() {
 }
 
 function ChainPill() {
+  const name = process.env.NEXT_PUBLIC_CHAIN_NAME ?? "Local";
   return (
     <span className="hidden items-center gap-2 rounded-full border border-rule px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-paper-faint sm:inline-flex">
       <span className="relative flex h-1.5 w-1.5">
         <span className="absolute inset-0 animate-ping rounded-full bg-sage opacity-40" />
         <span className="relative h-1.5 w-1.5 rounded-full bg-sage" />
       </span>
-      Sepolia
+      {name}
     </span>
   );
 }

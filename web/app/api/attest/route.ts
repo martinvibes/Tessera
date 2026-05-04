@@ -37,8 +37,8 @@ export async function POST(req: Request) {
 
   try {
     const tesseraIdAddress = requireAddress("TesseraID", process.env.TESSERA_ID_ADDRESS);
-    const { wallet } = getOperator();
-    const contract = new Contract(tesseraIdAddress, TESSERA_ID_ABI, wallet);
+    const { managed } = getOperator();
+    const contract = new Contract(tesseraIdAddress, TESSERA_ID_ABI, managed);
 
     // Check whether the holder already has a token; the contract reverts otherwise.
     const existing: bigint = await contract.tokenIdOf(holder);

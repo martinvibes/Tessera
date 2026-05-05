@@ -184,7 +184,9 @@ async function reconstructBalance({
         continue;
       }
 
-      // Atomic settlements via Settlement.settleAtomic.
+      // Atomic settlements via Settlement.settleAtomic or settleOpenOffer.
+      // Both have identical first six args (seller/taker, taker/buyer addresses,
+      // assets, and amounts) so we decode them the same way.
       if (settlementLower && toLower === settlementLower) {
         let parsed;
         try {
@@ -192,17 +194,21 @@ async function reconstructBalance({
         } catch {
           continue;
         }
-        if (!parsed || parsed.name !== "settleAtomic") continue;
+        if (
+          !parsed ||
+          (parsed.name !== "settleAtomic" && parsed.name !== "settleOpenOffer")
+        )
+          continue;
 
         const seller = (parsed.args[0] as string).toLowerCase();
-        const buyer = (parsed.args[1] as string).toLowerCase();
+        const taker = (parsed.args[1] as string).toLowerCase();
         const sellAsset = (parsed.args[2] as string).toLowerCase();
         const buyAsset = (parsed.args[3] as string).toLowerCase();
         const sellAmount = parsed.args[4] as bigint;
         const buyAmount = parsed.args[5] as bigint;
 
-        if (sellAsset === tokenLower) transfer(seller, buyer, sellAmount);
-        if (buyAsset === tokenLower) transfer(buyer, seller, buyAmount);
+        if (sellAsset === tokenLower) transfer(seller, taker, sellAmount);
+        if (buyAsset === tokenLower) transfer(taker, seller, buyAmount);
       }
     }
   }

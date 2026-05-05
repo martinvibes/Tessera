@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BrowserProvider, isAddress } from "ethers";
+import { BrowserProvider, isAddress, ZeroAddress } from "ethers";
 import { Modal } from "@/components/modal";
 import { ADDR } from "@/lib/contracts";
 import {
@@ -45,6 +45,7 @@ export function TradeModal({
   const sellAsset = sellSymbol === "cTBILL" ? ADDR.tbill : ADDR.usdc;
   const buyAsset = buySymbol === "cTBILL" ? ADDR.tbill : ADDR.usdc;
 
+  const [openOffer, setOpenOffer] = useState(true); // post to public order book by default
   const [counterparty, setCounterparty] = useState("");
   const [sellAmount, setSellAmount] = useState("");
   const [buyAmount, setBuyAmount] = useState("");
@@ -54,8 +55,10 @@ export function TradeModal({
   const [err, setErr] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [postedToBook, setPostedToBook] = useState(false);
 
   function reset() {
+    setOpenOffer(true);
     setCounterparty("");
     setSellAmount("");
     setBuyAmount("");
@@ -65,6 +68,7 @@ export function TradeModal({
     setErr(null);
     setLink(null);
     setLinkCopied(false);
+    setPostedToBook(false);
   }
 
   // Auto-fill buy amount when sell amount changes, until the user explicitly
@@ -115,15 +119,23 @@ export function TradeModal({
       setErr("Wallet not connected.");
       return;
     }
-    const cleanCounterparty = counterparty.trim().toLowerCase();
-    if (!isAddress(cleanCounterparty)) {
-      setErr("Counterparty address is not a valid Ethereum address.");
-      return;
+
+    let buyerAddr: string;
+    if (openOffer) {
+      buyerAddr = ZeroAddress;
+    } else {
+      const cleanCounterparty = counterparty.trim().toLowerCase();
+      if (!isAddress(cleanCounterparty)) {
+        setErr("Counterparty address is not a valid Ethereum address.");
+        return;
+      }
+      if (cleanCounterparty === fromAddress.toLowerCase()) {
+        setErr("Counterparty cannot be yourself.");
+        return;
+      }
+      buyerAddr = cleanCounterparty;
     }
-    if (cleanCounterparty === fromAddress.toLowerCase()) {
-      setErr("Counterparty cannot be yourself.");
-      return;
-    }
+
     let sell: bigint, buy: bigint, mins: number;
     try {
       sell = BigInt(sellAmount.replace(/[, _]/g, ""));
@@ -142,7 +154,7 @@ export function TradeModal({
 
     const terms: OfferTerms = {
       seller: fromAddress,
-      buyer: cleanCounterparty,
+      buyer: buyerAddr,
       sellAsset,
       buyAsset,
       sellAmount: sell.toString(),
@@ -162,9 +174,23 @@ export function TradeModal({
         termsValueForSigning(terms),
       );
 
-      const encoded = encodeSignedOffer({ terms, sellerSig });
-      const url = `${window.location.origin}/trade/${encoded}`;
-      setLink(url);
+      if (openOffer) {
+        // Post to the public order book.
+        const res = await fetch("/api/orderbook", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ terms, sellerSig }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to post offer");
+        setPostedToBook(true);
+        setLink(null);
+      } else {
+        const encoded = encodeSignedOffer({ terms, sellerSig });
+        const url = `${window.location.origin}/trade/${encoded}`;
+        setLink(url);
+        setPostedToBook(false);
+      }
       setStage("ready");
     } catch (e: unknown) {
       const message =
@@ -212,16 +238,38 @@ export function TradeModal({
           </p>
 
           <div className="mt-6 space-y-5">
-            <Field label="Counterparty address (the buyer)">
-              <input
-                autoFocus
-                type="text"
-                value={counterparty}
-                onChange={(e) => setCounterparty(e.target.value)}
-                placeholder="0x…"
-                className="num w-full border-0 border-b border-rule-2 bg-transparent py-2.5 text-[14px] tracking-[0.04em] text-paper placeholder:text-paper-ghost focus:border-marigold focus:outline-none"
-              />
-            </Field>
+            <fieldset className="border border-rule p-3">
+              <legend className="num px-1.5 text-[10px] uppercase tracking-[0.24em] text-paper-faint">
+                Audience
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                <RadioCard
+                  selected={openOffer}
+                  onClick={() => setOpenOffer(true)}
+                  title="Open to anyone"
+                  desc="Posts to the live order book — any signed-in user can take the offer."
+                />
+                <RadioCard
+                  selected={!openOffer}
+                  onClick={() => setOpenOffer(false)}
+                  title="Specific buyer"
+                  desc="Generate a one-time link to share privately. Only that wallet can accept."
+                />
+              </div>
+            </fieldset>
+
+            {!openOffer && (
+              <Field label="Counterparty address (the buyer)">
+                <input
+                  autoFocus
+                  type="text"
+                  value={counterparty}
+                  onChange={(e) => setCounterparty(e.target.value)}
+                  placeholder="0x…"
+                  className="num w-full border-0 border-b border-rule-2 bg-transparent py-2.5 text-[14px] tracking-[0.04em] text-paper placeholder:text-paper-ghost focus:border-marigold focus:outline-none"
+                />
+              </Field>
+            )}
 
             <div className="grid grid-cols-2 gap-5">
               <Field label={`You sell · ${TOKEN_LABELS[sellSymbol]}`}>
@@ -296,52 +344,59 @@ export function TradeModal({
         </form>
       )}
 
-      {stage === "ready" && link && (
+      {stage === "ready" && (
         <div className="px-6 py-6">
           <h3 className="font-display text-[26px] font-light leading-tight tracking-[-0.01em] text-paper">
-            Offer signed. Share with the counterparty.
+            {postedToBook
+              ? "Posted to the order book."
+              : "Offer signed. Share with the counterparty."}
           </h3>
           <p className="mt-2 text-[13px] leading-snug text-paper-dim">
-            Send this link to the buyer. When they accept and sign their side,
-            the swap settles atomically. Until they sign, no funds have moved.
+            {postedToBook
+              ? "Anyone signed in can now see your offer and accept it. The swap settles atomically when a taker signs — until then nothing has moved."
+              : "Send this link to the buyer. When they accept and sign their side, the swap settles atomically. Until they sign, no funds have moved."}
           </p>
 
-          <div className="mt-5 border border-rule bg-ink p-4">
-            <p className="num text-[9.5px] uppercase tracking-[0.24em] text-paper-faint">
-              Offer link
-            </p>
-            <p className="num mt-2 break-all text-[11px] tracking-[0.04em] text-paper">
-              {link}
-            </p>
-          </div>
+          {link && (
+            <div className="mt-5 border border-rule bg-ink p-4">
+              <p className="num text-[9.5px] uppercase tracking-[0.24em] text-paper-faint">
+                Offer link
+              </p>
+              <p className="num mt-2 break-all text-[11px] tracking-[0.04em] text-paper">
+                {link}
+              </p>
+            </div>
+          )}
 
           <div className="mt-5 grid grid-cols-2 gap-3 text-[13px]">
             <SummaryRow label="You sell" value={`${formatAmount(sellAmount)} ${sellSymbol}`} />
             <SummaryRow label="You receive" value={`${formatAmount(buyAmount)} ${buySymbol}`} />
             <SummaryRow
-              label="Counterparty"
-              value={`${counterparty.slice(0, 8)}…${counterparty.slice(-6)}`}
+              label="Audience"
+              value={postedToBook ? "Open to anyone" : `${counterparty.slice(0, 8)}…${counterparty.slice(-6)}`}
             />
             <SummaryRow label="Expires in" value={`${expiryMinutes} min`} />
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={copyLink}
-              className="num inline-flex items-center gap-2 rounded-none border border-marigold bg-marigold px-5 py-2.5 text-[11px] font-medium uppercase tracking-[0.2em] text-ink transition-colors hover:bg-marigold-deep hover:border-marigold-deep"
-            >
-              {linkCopied ? "Copied ✓" : "Copy offer link"}
-            </button>
-            <a
-              href={link}
-              target="_blank"
-              rel="noopener"
-              className="num inline-flex items-center gap-2 rounded-none border border-rule px-5 py-2.5 text-[11px] uppercase tracking-[0.2em] text-paper-dim transition-colors hover:border-paper hover:text-paper"
-            >
-              Preview as buyer
-            </a>
-          </div>
+          {link && (
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={copyLink}
+                className="num inline-flex items-center gap-2 rounded-none border border-marigold bg-marigold px-5 py-2.5 text-[11px] font-medium uppercase tracking-[0.2em] text-ink transition-colors hover:bg-marigold-deep hover:border-marigold-deep"
+              >
+                {linkCopied ? "Copied ✓" : "Copy offer link"}
+              </button>
+              <a
+                href={link}
+                target="_blank"
+                rel="noopener"
+                className="num inline-flex items-center gap-2 rounded-none border border-rule px-5 py-2.5 text-[11px] uppercase tracking-[0.2em] text-paper-dim transition-colors hover:border-paper hover:text-paper"
+              >
+                Preview as buyer
+              </a>
+            </div>
+          )}
         </div>
       )}
 
@@ -411,6 +466,42 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 function Spinner() {
   return (
     <span className="inline-block h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+  );
+}
+
+function RadioCard({
+  selected,
+  onClick,
+  title,
+  desc,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex flex-col items-start gap-1 border p-3 text-left transition-colors ${
+        selected
+          ? "border-marigold bg-marigold/[0.06]"
+          : "border-rule-2 hover:border-paper-faint"
+      }`}
+    >
+      <span className="flex items-center gap-2">
+        <span
+          className={`grid h-3 w-3 place-items-center rounded-full border ${
+            selected ? "border-marigold" : "border-rule-2"
+          }`}
+        >
+          {selected && <span className="h-1.5 w-1.5 rounded-full bg-marigold" />}
+        </span>
+        <span className="font-display text-[14px] font-light text-paper">{title}</span>
+      </span>
+      <span className="text-[11px] leading-snug text-paper-dim">{desc}</span>
+    </button>
   );
 }
 

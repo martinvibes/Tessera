@@ -14,6 +14,7 @@ import { LoginButton } from "@/components/login-button";
 import { SendModal } from "@/components/send-modal";
 import { TradeModal } from "@/components/trade-modal";
 import { CounterpartyLookup } from "@/components/counterparty-lookup";
+import { OrderBookPanel } from "@/components/orderbook-panel";
 import { ensureCorrectChain } from "@/lib/chain";
 
 // Read directly from the configured RPC. Web3Auth's BrowserProvider may target a
@@ -444,8 +445,12 @@ export default function Dashboard() {
             <CounterpartyLookup />
           </Panel>
 
-          <Panel title="Order book · cTBILL ↔ cUSDC" tag="§ FHE matcher (Plan 2)">
-            <BookEmpty />
+          <Panel title="Live offers" tag="§ Open RFQ book">
+            <OrderBookPanel
+              walletProvider={provider as unknown}
+              account={account}
+              onSettled={() => setRefresh((n) => n + 1)}
+            />
           </Panel>
         </div>
       </div>

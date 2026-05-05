@@ -142,4 +142,69 @@ contract Settlement is ZamaEthereumConfig {
             digest
         );
     }
+
+    /// @notice Settle an *open* offer — one where the seller signed
+    ///         `buyer == address(0)` to allow any counterparty to take it.
+    ///         The taker signs the same offer with their own address as buyer.
+    ///         Both signatures are verified independently; the seller's
+    ///         (buyer=0) digest is used for replay protection.
+    function settleOpenOffer(
+        address seller,
+        address taker,
+        address sellAsset,
+        address buyAsset,
+        uint64 sellAmount,
+        uint64 buyAmount,
+        uint64 nonce,
+        uint256 deadline,
+        bytes calldata sellerSig,
+        bytes calldata takerSig
+    ) external {
+        if (block.timestamp > deadline) revert Expired();
+        if (!approvedAsset[sellAsset] || !approvedAsset[buyAsset]) revert UnknownAsset();
+        if (sellAsset == buyAsset) revert SameAsset();
+
+        // Seller's digest has buyer = 0 (the offer is "open").
+        bytes32 sellerDigest = digestFor(
+            seller,
+            address(0),
+            sellAsset,
+            buyAsset,
+            sellAmount,
+            buyAmount,
+            nonce,
+            deadline
+        );
+        if (used[sellerDigest]) revert AlreadySettled();
+        used[sellerDigest] = true;
+        if (sellerDigest.recover(sellerSig) != seller) revert InvalidSellerSig();
+
+        // Taker signs the same terms with their own address as buyer — proves
+        // they consented to be the counterparty for this exact offer.
+        bytes32 takerDigest = digestFor(
+            seller,
+            taker,
+            sellAsset,
+            buyAsset,
+            sellAmount,
+            buyAmount,
+            nonce,
+            deadline
+        );
+        if (takerDigest.recover(takerSig) != taker) revert InvalidBuyerSig();
+
+        // Atomic two-leg DvP.
+        IConfidentialAdmin(sellAsset).transferFromAdmin(seller, taker, sellAmount);
+        IConfidentialAdmin(buyAsset).transferFromAdmin(taker, seller, buyAmount);
+
+        emit Settled(
+            seller,
+            taker,
+            sellAsset,
+            buyAsset,
+            sellAmount,
+            buyAmount,
+            sellerDigest
+        );
+    }
 }

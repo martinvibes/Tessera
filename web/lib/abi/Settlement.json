@@ -293,6 +293,64 @@
     {
       "inputs": [
         {
+          "internalType": "address",
+          "name": "seller",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "taker",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "sellAsset",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "buyAsset",
+          "type": "address"
+        },
+        {
+          "internalType": "uint64",
+          "name": "sellAmount",
+          "type": "uint64"
+        },
+        {
+          "internalType": "uint64",
+          "name": "buyAmount",
+          "type": "uint64"
+        },
+        {
+          "internalType": "uint64",
+          "name": "nonce",
+          "type": "uint64"
+        },
+        {
+          "internalType": "uint256",
+          "name": "deadline",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bytes",
+          "name": "sellerSig",
+          "type": "bytes"
+        },
+        {
+          "internalType": "bytes",
+          "name": "takerSig",
+          "type": "bytes"
+        }
+      ],
+      "name": "settleOpenOffer",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "bytes32",
           "name": "",
           "type": "bytes32"

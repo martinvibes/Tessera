@@ -229,6 +229,76 @@ describe("Settlement (atomic DvP)", function () {
     ).to.be.revertedWithCustomError(settlement, "SameAsset");
   });
 
+  it("settles an open offer (buyer=address(0)) for any taker", async () => {
+    const deadline = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 3600);
+    const open = {
+      seller: aliceAddr,
+      buyer: ethers.ZeroAddress,
+      sellAsset: tbillAddr,
+      buyAsset: usdcAddr,
+      sellAmount: 100_000n,
+      buyAmount: 99_800n,
+      nonce: 7n,
+      deadline,
+    };
+    const sellerSig = await signOffer(alice, open);
+    const takerView = { ...open, buyer: bobAddr };
+    const takerSig = await signOffer(bob, takerView);
+
+    await expect(
+      settlement.settleOpenOffer(
+        aliceAddr,
+        bobAddr,
+        tbillAddr,
+        usdcAddr,
+        100_000n,
+        99_800n,
+        7n,
+        deadline,
+        sellerSig,
+        takerSig,
+      ),
+    ).to.emit(settlement, "Settled");
+
+    expect(await readBalance(tbill, alice)).to.equal(900_000n);
+    expect(await readBalance(tbill, bob)).to.equal(100_000n);
+    expect(await readBalance(usdc, alice)).to.equal(99_800n);
+    expect(await readBalance(usdc, bob)).to.equal(900_200n);
+  });
+
+  it("rejects an open offer if the seller's signature has the wrong buyer", async () => {
+    // Adversary case: seller signed for a SPECIFIC buyer, but server tries to
+    // route through settleOpenOffer with a different taker.
+    const deadline = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 3600);
+    const args = {
+      seller: aliceAddr,
+      buyer: bobAddr, // closed offer, NOT open
+      sellAsset: tbillAddr,
+      buyAsset: usdcAddr,
+      sellAmount: 100_000n,
+      buyAmount: 99_800n,
+      nonce: 8n,
+      deadline,
+    };
+    const sellerSig = await signOffer(alice, args); // signed with buyer=bob
+    const takerSig = await signOffer(mallory, { ...args, buyer: malloryAddr });
+
+    await expect(
+      settlement.settleOpenOffer(
+        aliceAddr,
+        malloryAddr,
+        tbillAddr,
+        usdcAddr,
+        100_000n,
+        99_800n,
+        8n,
+        deadline,
+        sellerSig,
+        takerSig,
+      ),
+    ).to.be.revertedWithCustomError(settlement, "InvalidSellerSig");
+  });
+
   it("rejects replay of an already-settled offer", async () => {
     const deadline = BigInt((await ethers.provider.getBlock("latest"))!.timestamp + 3600);
     const args = {

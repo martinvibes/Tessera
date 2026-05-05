@@ -381,7 +381,7 @@ function ConfigureStep({
       <div className="mt-6 space-y-7">
         {/* Audience */}
         <Section label="Who can take this?">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <RadioCard
               selected={openOffer}
               onClick={() => setOpenOffer(true)}
@@ -409,7 +409,7 @@ function ConfigureStep({
 
         {/* Amounts */}
         <Section label="Amounts">
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5">
             <Field label={`You sell · ${TOKEN_LABELS[sellSymbol]}`}>
               <input
                 type="text"
@@ -539,7 +539,7 @@ function ReviewStep({
         moves until a counterparty also signs.
       </p>
 
-      <div className="mt-6 grid grid-cols-2 gap-px overflow-hidden border border-rule bg-rule">
+      <div className="mt-6 grid grid-cols-1 gap-px overflow-hidden border border-rule bg-rule sm:grid-cols-2">
         <SwapPane label="You sell" amount={sell} symbol={sellSymbol} tone="outgoing" />
         <SwapPane label="You receive" amount={buy} symbol={buySymbol} tone="incoming" />
       </div>
@@ -638,7 +638,7 @@ function ReadyStep({
         </div>
       )}
 
-      <div className="mt-6 grid grid-cols-2 gap-3 text-[13px]">
+      <div className="mt-6 grid grid-cols-1 gap-3 text-[13px] sm:grid-cols-2">
         <SummaryRow
           label="You sell"
           value={`${formatAmount(sellAmount)} ${sellSymbol}`}

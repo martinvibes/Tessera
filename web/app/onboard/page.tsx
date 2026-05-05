@@ -203,7 +203,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className="relative mx-auto w-full max-w-[920px] px-6 pb-32 pt-20 md:px-10"
+      className="relative mx-auto w-full max-w-[920px] px-4 pb-24 pt-12 sm:px-6 md:px-10 md:pb-32 md:pt-20"
     >
       {children}
     </motion.section>

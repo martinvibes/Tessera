@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BrowserProvider, isAddress } from "ethers";
 import { Modal } from "@/components/modal";
 import { ADDR } from "@/lib/contracts";
+import { TxLink } from "@/components/tx-link";
 
 type Step = "configure" | "review" | "signing" | "submitting" | "done";
 
@@ -238,7 +239,7 @@ export function SendModal({
             and recipient are exactly what you saw on the previous step.
           </p>
 
-          <div className="mt-6 grid grid-cols-2 gap-px overflow-hidden border border-rule bg-rule">
+          <div className="mt-6 grid grid-cols-1 gap-px overflow-hidden border border-rule bg-rule sm:grid-cols-2">
             <Pane
               label="You send"
               amount={parseAmount(amount)}
@@ -287,13 +288,13 @@ export function SendModal({
               Sent ✓
             </p>
             <p className="mt-1 text-[14px] text-paper">
-              {txHash && (
-                <>
-                  Tx <span className="num">{txHash.slice(0, 14)}…{txHash.slice(-6)}</span>.
-                  Their balance has been updated.
-                </>
-              )}
+              Their balance has been updated.
             </p>
+            {txHash && (
+              <p className="mt-2 text-[12px] text-paper-dim">
+                <TxLink hash={txHash} />
+              </p>
+            )}
           </div>
         </div>
       )}

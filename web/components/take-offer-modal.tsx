@@ -2,6 +2,7 @@
 
 import { Modal } from "@/components/modal";
 import { symbolForAsset, type OfferTerms } from "@/lib/offer";
+import { explorerName } from "@/lib/explorer";
 
 /**
  * Reusable confirmation dialog for taking/accepting any offer — open from the
@@ -75,7 +76,7 @@ export function TakeOfferModal({
 
         {terms && (
           <>
-            <div className="mt-7 grid grid-cols-2 gap-px overflow-hidden border border-rule bg-rule">
+            <div className="mt-7 grid grid-cols-1 gap-px overflow-hidden border border-rule bg-rule sm:grid-cols-2">
               <Pane
                 label={takerLabel}
                 amount={sell}
@@ -131,7 +132,11 @@ export function TakeOfferModal({
               {successLabel ?? "Settled atomically ✓"}
             </p>
             <p className="mt-1 text-[13px] text-paper">
-              Both balances have updated on-chain.
+              Both balances have updated on-chain
+              {explorerName() && (
+                <span className="text-paper-dim"> · view it on {explorerName()}</span>
+              )}
+              .
             </p>
           </div>
         )}

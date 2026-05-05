@@ -14,6 +14,7 @@ import {
 } from "@/lib/offer";
 import { LoginButton } from "@/components/login-button";
 import { TakeOfferModal } from "@/components/take-offer-modal";
+import { TxLink } from "@/components/tx-link";
 
 type AcceptStatus = "idle" | "signing" | "submitting" | "settled" | "error";
 
@@ -142,7 +143,7 @@ export default function TradeAcceptPage({
   const busy = acceptStatus === "signing" || acceptStatus === "submitting";
 
   return (
-    <main className="mx-auto w-full max-w-[820px] px-6 py-16 md:px-10">
+    <main className="mx-auto w-full max-w-[820px] px-4 py-12 sm:px-6 md:px-10 md:py-16">
       <p className="num text-[11px] uppercase tracking-[0.32em] text-marigold">
         A trade is waiting
       </p>
@@ -228,11 +229,17 @@ export default function TradeAcceptPage({
             body={`It expired ${deadlineDate.toLocaleString()}. Ask the sender for a fresh offer.`}
           />
         ) : settled ? (
-          <Banner
-            tone="success"
-            title="Settled ✓"
-            body={`Both balances are updated. Tx ${txHash?.slice(0, 14)}…${txHash?.slice(-6)}.`}
-          />
+          <div className="border-l-2 border-sage bg-sage/5 p-4">
+            <p className="num text-[10px] uppercase tracking-[0.22em] text-sage">
+              Settled ✓
+            </p>
+            <p className="mt-1 text-[14px] text-paper">Both balances are updated.</p>
+            {txHash && (
+              <p className="mt-2 text-[12px] text-paper-dim">
+                <TxLink hash={txHash} />
+              </p>
+            )}
+          </div>
         ) : !youAreBuyer ? (
           <Banner
             tone="warn"

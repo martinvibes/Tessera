@@ -15,6 +15,8 @@ import { SendModal } from "@/components/send-modal";
 import { TradeModal } from "@/components/trade-modal";
 import { CounterpartyLookup } from "@/components/counterparty-lookup";
 import { OrderBookPanel } from "@/components/orderbook-panel";
+import { ActivityPanel } from "@/components/activity-panel";
+import { TxLink } from "@/components/tx-link";
 
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? "http://127.0.0.1:8545";
 const CHAIN_NAME = process.env.NEXT_PUBLIC_CHAIN_NAME ?? "Local";
@@ -269,18 +271,17 @@ export default function Dashboard() {
   );
 
   return (
-    <section className="relative w-full px-6 py-12 md:px-10 md:py-16">
+    <section className="relative w-full px-4 py-10 sm:px-6 md:px-10 md:py-16">
       {/* Greeting */}
-      <header className="mx-auto mb-12 max-w-[1280px]">
+      <header className="mx-auto mb-10 max-w-[1280px] md:mb-12">
         <p className="num text-[11px] uppercase tracking-[0.32em] text-marigold">
           Dashboard
         </p>
-        <h1 className="mt-3 font-display text-[clamp(36px,4.4vw,56px)] font-light leading-[1.05] tracking-[-0.02em] text-paper">
+        <h1 className="mt-3 font-display text-[clamp(32px,4.4vw,56px)] font-light leading-[1.05] tracking-[-0.02em] text-paper">
           Welcome back, {firstName}.
         </h1>
-        <div className="mt-5 flex flex-wrap items-center gap-4 text-[13px] text-paper-dim">
+        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px] text-paper-dim sm:text-[13px]">
           <WalletBadge address={account} />
-          <span className="text-rule-2">·</span>
           <span className="num inline-flex items-center gap-2">
             <span className="relative flex h-1.5 w-1.5">
               <span className="absolute inset-0 animate-ping rounded-full bg-sage opacity-50" />
@@ -292,18 +293,15 @@ export default function Dashboard() {
             )}
           </span>
           {ethBalance !== null && (
-            <>
-              <span className="text-rule-2">·</span>
-              <span className="num">
-                {Number(formatEther(ethBalance)).toFixed(4)} ETH
-                <span className="ml-1 text-paper-faint">for fees</span>
-              </span>
-            </>
+            <span className="num">
+              {Number(formatEther(ethBalance)).toFixed(4)} ETH
+              <span className="ml-1 text-paper-faint">for fees</span>
+            </span>
           )}
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-[1280px] grid-cols-12 gap-6">
+      <div className="mx-auto grid max-w-[1280px] grid-cols-12 gap-4 sm:gap-6">
         {/* Top — identity + onboarding for new users */}
         <div className="col-span-12">
           <IdentityCard
@@ -374,6 +372,20 @@ export default function Dashboard() {
               walletProvider={provider as unknown}
               account={account}
               onSettled={() => setRefresh((n) => n + 1)}
+            />
+          </Panel>
+        </div>
+
+        {/* Your activity */}
+        <div className="col-span-12">
+          <Panel
+            title="Your activity"
+            subtitle="Mints, sends, receives and trades. Sign a message to reveal."
+          >
+            <ActivityPanel
+              walletProvider={provider as unknown}
+              account={account}
+              refreshKey={refresh}
             />
           </Panel>
         </div>
@@ -613,7 +625,7 @@ function QuickActions({
       </div>
       {faucet.tx && (
         <p className="num border-t border-rule/80 px-6 py-3 text-[10px] uppercase tracking-[0.22em] text-sage">
-          minted · {faucet.tx.slice(0, 14)}…
+          minted · <TxLink hash={faucet.tx} truncate={12} className="text-sage hover:text-sage" />
         </p>
       )}
       {faucet.err && (

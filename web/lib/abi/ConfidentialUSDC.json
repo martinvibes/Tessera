@@ -104,6 +104,11 @@
       "type": "error"
     },
     {
+      "inputs": [],
+      "name": "NotAuthorised",
+      "type": "error"
+    },
+    {
       "inputs": [
         {
           "internalType": "address",
@@ -270,6 +275,19 @@
         }
       ],
       "name": "PublicDecryptionVerified",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "settler",
+          "type": "address"
+        }
+      ],
+      "name": "SettlerUpdated",
       "type": "event"
     },
     {
@@ -757,6 +775,32 @@
       "name": "setOperator",
       "outputs": [],
       "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_settler",
+          "type": "address"
+        }
+      ],
+      "name": "setSettler",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "settler",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
       "type": "function"
     },
     {

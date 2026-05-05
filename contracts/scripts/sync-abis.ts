@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const TARGETS = ["TesseraID", "ConfidentialTBill", "ConfidentialUSDC"];
+const TARGETS = ["TesseraID", "ConfidentialTBill", "ConfidentialUSDC", "Settlement"];
 
 const root = path.resolve(__dirname, "..");
 const outDir = path.resolve(root, "..", "web", "lib", "abi");

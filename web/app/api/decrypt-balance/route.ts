@@ -6,20 +6,9 @@ import {
   ZeroAddress,
   verifyTypedData,
 } from "ethers";
-import { TBILL_ABI, USDC_ABI } from "@/lib/contracts";
+import { TBILL_ABI, USDC_ABI, SETTLEMENT_ABI } from "@/lib/contracts";
 
 export const runtime = "nodejs";
-
-/**
- * Reconstructs a cleartext balance for a holder by scanning the public
- * calldata of `mintClear` and `transferClear` calls against the token
- * contract. This is the local-dev decryption path.
- *
- * Production deployments swap this endpoint for the Zama relayer SDK's
- * `userDecrypt` flow, which uses the same EIP-712 signature pattern but
- * routes the decrypt through Zama's KMS network. The user-facing UX
- * (sign-then-reveal) is identical.
- */
 
 const DOMAIN = {
   name: "Tessera",
@@ -52,21 +41,14 @@ export async function POST(req: Request) {
   }
 
   const { holder, token, issuedAt, signature } = body;
-
   if (!holder || !token || typeof issuedAt !== "number" || !signature) {
-    return NextResponse.json(
-      { error: "Missing holder / token / issuedAt / signature." },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Missing fields." }, { status: 400 });
   }
 
-  const now = Date.now();
-  if (Math.abs(now - issuedAt) > MAX_AGE_MS) {
+  if (Math.abs(Date.now() - issuedAt) > MAX_AGE_MS) {
     return NextResponse.json({ error: "Signature expired. Sign again." }, { status: 401 });
   }
 
-  // Verify the user actually owns the holder address by recovering the signer
-  // from their EIP-712 signature.
   let recovered: string;
   try {
     recovered = verifyTypedData(DOMAIN, TYPES, { holder, token, issuedAt }, signature);
@@ -82,14 +64,15 @@ export async function POST(req: Request) {
 
   const tbillAddr = process.env.TBILL_ADDRESS?.toLowerCase();
   const usdcAddr = process.env.USDC_ADDRESS?.toLowerCase();
+  const settlementAddr = process.env.SETTLEMENT_ADDRESS?.toLowerCase();
   const tokenLower = token.toLowerCase();
-
   if (tokenLower !== tbillAddr && tokenLower !== usdcAddr) {
     return NextResponse.json({ error: "Unknown token." }, { status: 400 });
   }
 
-  const abi = tokenLower === tbillAddr ? TBILL_ABI : USDC_ABI;
-  const iface = new Interface(abi);
+  const tokenAbi = tokenLower === tbillAddr ? TBILL_ABI : USDC_ABI;
+  const tokenIface = new Interface(tokenAbi);
+  const settlementIface = new Interface(SETTLEMENT_ABI);
 
   const rpc = process.env.RPC_URL;
   if (!rpc) {
@@ -102,11 +85,11 @@ export async function POST(req: Request) {
       provider,
       tokenAddress: token,
       holder,
-      iface,
+      tokenIface,
+      settlementIface,
+      settlementAddress: settlementAddr ?? "",
     });
-    // Sanity-check: make sure the on-chain encrypted handle exists (i.e., the
-    // chain actually has state for this holder).
-    const c = new Contract(token, abi, provider);
+    const c = new Contract(token, tokenAbi, provider);
     const handle: string = await c.confidentialBalanceOf(holder);
 
     return NextResponse.json({
@@ -128,20 +111,36 @@ async function reconstructBalance({
   provider,
   tokenAddress,
   holder,
-  iface,
+  tokenIface,
+  settlementIface,
+  settlementAddress,
 }: {
   provider: JsonRpcProvider;
   tokenAddress: string;
   holder: string;
-  iface: Interface;
+  tokenIface: Interface;
+  settlementIface: Interface;
+  settlementAddress: string;
 }): Promise<bigint> {
   const latest = await provider.getBlockNumber();
   const tokenLower = tokenAddress.toLowerCase();
   const holderLower = holder.toLowerCase();
+  const settlementLower = settlementAddress.toLowerCase();
 
-  let balance = 0n;
-  // Local Hardhat chains stay short (a few hundred blocks at most). On real
-  // testnets we'd cache this at a service layer.
+  // Track every holder's running balance for THIS token. Required so we can
+  // correctly model FHESafeMath.tryDecrease, which silently no-ops if the
+  // sender doesn't have enough — same semantics the contract enforces.
+  const bal = new Map<string, bigint>();
+  const get = (a: string) => bal.get(a) ?? 0n;
+  const credit = (a: string, x: bigint) => bal.set(a, get(a) + x);
+  const transfer = (from: string, to: string, amount: bigint) => {
+    const have = get(from);
+    const moved = have >= amount ? amount : 0n;
+    if (moved === 0n) return;
+    bal.set(from, have - moved);
+    credit(to, moved);
+  };
+
   for (let n = 0; n <= latest; n++) {
     const block = await provider.getBlock(n, true);
     if (!block) continue;
@@ -150,40 +149,63 @@ async function reconstructBalance({
         typeof txOrHash === "string"
           ? await provider.getTransaction(txOrHash)
           : txOrHash;
-      if (!tx) continue;
-      if (!tx.to || tx.to.toLowerCase() !== tokenLower) continue;
+      if (!tx || !tx.to) continue;
+      const toLower = tx.to.toLowerCase();
 
-      let parsed;
-      try {
-        parsed = iface.parseTransaction({ data: tx.data, value: tx.value });
-      } catch {
+      // Skip reverted transactions — they didn't change state.
+      const receipt = await provider.getTransactionReceipt(tx.hash);
+      if (!receipt || receipt.status !== 1) continue;
+
+      // Direct calls to the token contract.
+      if (toLower === tokenLower) {
+        let parsed;
+        try {
+          parsed = tokenIface.parseTransaction({ data: tx.data, value: tx.value });
+        } catch {
+          continue;
+        }
+        if (!parsed) continue;
+        const senderLower = (tx.from ?? ZeroAddress).toLowerCase();
+
+        if (parsed.name === "mintClear") {
+          const to = (parsed.args[0] as string).toLowerCase();
+          const amount = parsed.args[1] as bigint;
+          credit(to, amount);
+        } else if (parsed.name === "transferClear") {
+          const to = (parsed.args[0] as string).toLowerCase();
+          const amount = parsed.args[1] as bigint;
+          transfer(senderLower, to, amount);
+        } else if (parsed.name === "transferFromAdmin") {
+          const fromLower = (parsed.args[0] as string).toLowerCase();
+          const toLowerArg = (parsed.args[1] as string).toLowerCase();
+          const amount = parsed.args[2] as bigint;
+          transfer(fromLower, toLowerArg, amount);
+        }
         continue;
       }
-      if (!parsed) continue;
 
-      const senderLower = (tx.from ?? ZeroAddress).toLowerCase();
+      // Atomic settlements via Settlement.settleAtomic.
+      if (settlementLower && toLower === settlementLower) {
+        let parsed;
+        try {
+          parsed = settlementIface.parseTransaction({ data: tx.data, value: tx.value });
+        } catch {
+          continue;
+        }
+        if (!parsed || parsed.name !== "settleAtomic") continue;
 
-      if (parsed.name === "mintClear") {
-        const to = (parsed.args[0] as string).toLowerCase();
-        const amount = parsed.args[1] as bigint;
-        if (to === holderLower) balance += amount;
-      } else if (parsed.name === "transferClear") {
-        // tx.from spends; first arg is recipient.
-        const to = (parsed.args[0] as string).toLowerCase();
-        const amount = parsed.args[1] as bigint;
-        if (senderLower === holderLower) balance -= amount;
-        if (to === holderLower) balance += amount;
-      } else if (parsed.name === "transferFromAdmin") {
-        // Operator-relayed transfer: explicit from + to + amount.
-        const fromLower = (parsed.args[0] as string).toLowerCase();
-        const toLower = (parsed.args[1] as string).toLowerCase();
-        const amount = parsed.args[2] as bigint;
-        if (fromLower === holderLower) balance -= amount;
-        if (toLower === holderLower) balance += amount;
+        const seller = (parsed.args[0] as string).toLowerCase();
+        const buyer = (parsed.args[1] as string).toLowerCase();
+        const sellAsset = (parsed.args[2] as string).toLowerCase();
+        const buyAsset = (parsed.args[3] as string).toLowerCase();
+        const sellAmount = parsed.args[4] as bigint;
+        const buyAmount = parsed.args[5] as bigint;
+
+        if (sellAsset === tokenLower) transfer(seller, buyer, sellAmount);
+        if (buyAsset === tokenLower) transfer(buyer, seller, buyAmount);
       }
     }
   }
 
-  if (balance < 0n) balance = 0n;
-  return balance;
+  return get(holderLower);
 }

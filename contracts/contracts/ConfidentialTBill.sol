@@ -9,10 +9,22 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /// @title ConfidentialTBill — mock tokenized US Treasury Bill (ERC-7984)
 /// @notice Owner is the mock issuer; in production this would be e.g. BlackRock BUIDL.
 contract ConfidentialTBill is ERC7984, Ownable, ZamaEthereumConfig {
+    /// @notice Address of the Settlement contract authorised to move tokens
+    ///         on behalf of users via `transferFromAdmin`.
+    address public settler;
+
+    error NotAuthorised();
+    event SettlerUpdated(address indexed settler);
+
     constructor(address initialOwner)
         ERC7984("Tessera Confidential T-Bill", "cTBILL", "")
         Ownable(initialOwner)
     {}
+
+    function setSettler(address _settler) external onlyOwner {
+        settler = _settler;
+        emit SettlerUpdated(_settler);
+    }
 
     /// @notice Owner-only mint of an encrypted amount.
     function mintEncrypted(address to, externalEuint64 inputAmount, bytes calldata proof)
@@ -40,15 +52,14 @@ contract ConfidentialTBill is ERC7984, Ownable, ZamaEthereumConfig {
         _transfer(msg.sender, to, transferred);
     }
 
-    /// @notice Operator-relayed transfer. Anyone (in practice, the operator submitting
-    ///         a meta-transaction) can move tokens from `from` to `to`. The off-chain
-    ///         server is responsible for verifying the user's EIP-712 signature
-    ///         before calling this. For local-dev / demo paths only.
+    /// @notice Operator/settler-relayed transfer. Either the contract owner
+    ///         (server with deployer key) or the Settlement contract may call
+    ///         this. For local-dev / demo paths only.
     function transferFromAdmin(address from, address to, uint64 amount)
         external
-        onlyOwner
         returns (euint64 transferred)
     {
+        if (msg.sender != owner() && msg.sender != settler) revert NotAuthorised();
         transferred = FHE.asEuint64(amount);
         _transfer(from, to, transferred);
     }

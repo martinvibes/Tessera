@@ -12,6 +12,7 @@ import {
 import { ADDR, TESSERA_ID_ABI, TBILL_ABI, USDC_ABI } from "@/lib/contracts";
 import { LoginButton } from "@/components/login-button";
 import { SendModal } from "@/components/send-modal";
+import { TradeModal } from "@/components/trade-modal";
 import { CounterpartyLookup } from "@/components/counterparty-lookup";
 import { ensureCorrectChain } from "@/lib/chain";
 
@@ -63,6 +64,7 @@ export default function Dashboard() {
     tx: null,
   });
   const [sendModal, setSendModal] = useState<"cTBILL" | "cUSDC" | null>(null);
+  const [tradeModal, setTradeModal] = useState<"cTBILL" | "cUSDC" | null>(null);
   const [decrypts, setDecrypts] = useState<Record<string, DecryptState>>({});
 
   const decryptBalance = useCallback(
@@ -425,6 +427,7 @@ export default function Dashboard() {
                   p={p}
                   decryptState={decrypts[p.symbol] ?? { status: "encrypted" }}
                   onSend={() => setSendModal(p.symbol)}
+                  onTrade={() => setTradeModal(p.symbol)}
                   onDecrypt={() => decryptBalance(p.symbol, p.address)}
                 />
               ))}
@@ -454,6 +457,13 @@ export default function Dashboard() {
         walletProvider={provider as unknown}
         fromAddress={account}
         onConfirmed={() => setRefresh((n) => n + 1)}
+      />
+      <TradeModal
+        open={tradeModal !== null}
+        onClose={() => setTradeModal(null)}
+        sellSymbol={tradeModal ?? "cTBILL"}
+        walletProvider={provider as unknown}
+        fromAddress={account}
       />
     </section>
   );
@@ -580,11 +590,13 @@ function PositionCard({
   p,
   decryptState,
   onSend,
+  onTrade,
   onDecrypt,
 }: {
   p: Position;
   decryptState: DecryptState;
   onSend: () => void;
+  onTrade: () => void;
   onDecrypt: () => void;
 }) {
   const has = !!(p.balanceHandle && p.balanceHandle !== ZERO_HANDLE);
@@ -694,6 +706,13 @@ function PositionCard({
           className="num inline-flex items-center gap-2 border border-rule px-3 py-2 text-[10px] uppercase tracking-[0.22em] text-paper-dim transition-colors hover:border-marigold hover:text-marigold disabled:opacity-40 disabled:hover:border-rule disabled:hover:text-paper-dim"
         >
           Send <Arrow />
+        </button>
+        <button
+          onClick={onTrade}
+          disabled={!has}
+          className="num inline-flex items-center gap-2 border border-rule px-3 py-2 text-[10px] uppercase tracking-[0.22em] text-paper-dim transition-colors hover:border-marigold hover:text-marigold disabled:opacity-40 disabled:hover:border-rule disabled:hover:text-paper-dim"
+        >
+          Trade <Arrow />
         </button>
       </div>
     </article>

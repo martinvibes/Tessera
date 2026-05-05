@@ -8,10 +8,22 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title ConfidentialUSDC — mock confidential USDC stablecoin (ERC-7984)
 contract ConfidentialUSDC is ERC7984, Ownable, ZamaEthereumConfig {
+    /// @notice Address of the Settlement contract authorised to move tokens
+    ///         on behalf of users via `transferFromAdmin`.
+    address public settler;
+
+    error NotAuthorised();
+    event SettlerUpdated(address indexed settler);
+
     constructor(address initialOwner)
         ERC7984("Tessera Confidential USDC", "cUSDC", "")
         Ownable(initialOwner)
     {}
+
+    function setSettler(address _settler) external onlyOwner {
+        settler = _settler;
+        emit SettlerUpdated(_settler);
+    }
 
     function mintEncrypted(address to, externalEuint64 inputAmount, bytes calldata proof)
         external
@@ -36,13 +48,13 @@ contract ConfidentialUSDC is ERC7984, Ownable, ZamaEthereumConfig {
         _transfer(msg.sender, to, transferred);
     }
 
-    /// @notice Operator-relayed transfer. Server verifies the user's signature
-    ///         off-chain before calling this. For local-dev / demo paths only.
+    /// @notice Operator/settler-relayed transfer. Either the contract owner
+    ///         or the Settlement contract may call. For local-dev / demo only.
     function transferFromAdmin(address from, address to, uint64 amount)
         external
-        onlyOwner
         returns (euint64 transferred)
     {
+        if (msg.sender != owner() && msg.sender != settler) revert NotAuthorised();
         transferred = FHE.asEuint64(amount);
         _transfer(from, to, transferred);
     }

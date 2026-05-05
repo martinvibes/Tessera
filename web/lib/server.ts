@@ -34,21 +34,28 @@ let queueTail: Promise<unknown> = Promise.resolve();
 
 export function withOperatorTx<T>(fn: () => Promise<T>): Promise<T> {
   const wrapped = async () => {
-    try {
-      return await fn();
-    } catch (e: unknown) {
-      const code =
-        e && typeof e === "object" && "code" in e
-          ? (e as { code?: string }).code
-          : undefined;
-      if (code === "NONCE_EXPIRED" || code === "REPLACEMENT_UNDERPRICED") {
-        // Brief breathing room, then retry once. Hardhat needs a moment to
-        // finalise mining state after rapid sends.
-        await new Promise((r) => setTimeout(r, 80));
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
         return await fn();
+      } catch (e: unknown) {
+        lastErr = e;
+        const code =
+          e && typeof e === "object" && "code" in e
+            ? (e as { code?: string }).code
+            : undefined;
+        const message =
+          e instanceof Error ? e.message : typeof e === "string" ? e : "";
+        const retryable =
+          code === "NONCE_EXPIRED" ||
+          code === "REPLACEMENT_UNDERPRICED" ||
+          /nonce/i.test(message);
+        if (!retryable) throw e;
+        // Exponential backoff: 60, 150, 300ms before final attempt.
+        await new Promise((r) => setTimeout(r, 60 * Math.pow(2, attempt)));
       }
-      throw e;
     }
+    throw lastErr;
   };
   const next = queueTail.then(wrapped, wrapped);
   queueTail = next.catch(() => undefined);

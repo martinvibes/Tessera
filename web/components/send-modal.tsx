@@ -1,23 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { BrowserProvider, Contract, isAddress } from "ethers";
+import { BrowserProvider, isAddress } from "ethers";
 import { Modal } from "@/components/modal";
-import { ADDR, TBILL_ABI, USDC_ABI } from "@/lib/contracts";
+import { ADDR } from "@/lib/contracts";
 
-type Stage = "idle" | "awaiting-signature" | "broadcasting" | "done";
+type Stage =
+  | "idle"
+  | "signing"
+  | "submitting"
+  | "done";
 
 export function SendModal({
   open,
   onClose,
   symbol,
   walletProvider,
+  fromAddress,
   onConfirmed,
 }: {
   open: boolean;
   onClose: () => void;
   symbol: "cTBILL" | "cUSDC";
   walletProvider: unknown | null;
+  fromAddress: string | null;
   onConfirmed: () => void;
 }) {
   const [recipient, setRecipient] = useState("");
@@ -27,7 +33,6 @@ export function SendModal({
   const [txHash, setTxHash] = useState<string | null>(null);
 
   const tokenAddr = symbol === "cTBILL" ? ADDR.tbill : ADDR.usdc;
-  const abi = symbol === "cTBILL" ? TBILL_ABI : USDC_ABI;
 
   function reset() {
     setRecipient("");
@@ -36,7 +41,6 @@ export function SendModal({
     setErr(null);
     setTxHash(null);
   }
-
   function close() {
     reset();
     onClose();
@@ -45,14 +49,21 @@ export function SendModal({
   async function send(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    if (!walletProvider) {
+    if (!walletProvider || !fromAddress) {
       setErr("Wallet not connected.");
       return;
     }
-    if (!isAddress(recipient)) {
+
+    const cleanedRecipient = recipient.trim().toLowerCase();
+    if (!isAddress(cleanedRecipient)) {
       setErr("Recipient address is not a valid Ethereum address.");
       return;
     }
+    if (cleanedRecipient === fromAddress.toLowerCase()) {
+      setErr("Cannot send to yourself.");
+      return;
+    }
+
     let amt: bigint;
     try {
       amt = BigInt(amount.replace(/[, _]/g, ""));
@@ -63,17 +74,52 @@ export function SendModal({
     }
 
     try {
-      setStage("awaiting-signature");
+      setStage("signing");
       const ethers = new BrowserProvider(walletProvider as never);
       const signer = await ethers.getSigner();
-      const token = new Contract(tokenAddr, abi, signer);
-      const tx = await token.transferClear(recipient, amt);
-      setStage("broadcasting");
-      setTxHash(tx.hash);
-      await tx.wait();
+      const issuedAt = Date.now();
+
+      // EIP-712 typed-data signature. Chain-independent — works regardless of
+      // what chain Web3Auth's wallet is currently bound to.
+      const signature = await signer.signTypedData(
+        { name: "Tessera", version: "1" },
+        {
+          Transfer: [
+            { name: "from", type: "address" },
+            { name: "to", type: "address" },
+            { name: "token", type: "address" },
+            { name: "amount", type: "uint64" },
+            { name: "issuedAt", type: "uint256" },
+          ],
+        },
+        {
+          from: fromAddress,
+          to: cleanedRecipient,
+          token: tokenAddr,
+          amount: amt,
+          issuedAt,
+        },
+      );
+
+      setStage("submitting");
+      const res = await fetch("/api/transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: fromAddress,
+          to: cleanedRecipient,
+          token: tokenAddr,
+          amount: amt.toString(),
+          issuedAt,
+          signature,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Transfer failed");
+      setTxHash(data.txHash);
       setStage("done");
       onConfirmed();
-      setTimeout(close, 1800);
+      setTimeout(close, 2000);
     } catch (e: unknown) {
       const message =
         e && typeof e === "object" && "shortMessage" in e
@@ -86,7 +132,7 @@ export function SendModal({
     }
   }
 
-  const sending = stage === "awaiting-signature" || stage === "broadcasting";
+  const sending = stage === "signing" || stage === "submitting";
 
   return (
     <Modal open={open} onClose={close} labelledBy="send-title">
@@ -104,8 +150,8 @@ export function SendModal({
           Send {symbol}
         </h3>
         <p className="mt-2 text-[13px] leading-snug text-paper-dim">
-          You sign with your wallet. The recipient&apos;s encrypted balance updates on
-          the next read.
+          You sign a message with your wallet to authorise the transfer. The
+          recipient&apos;s encrypted balance updates on the next read.
         </p>
 
         <div className="mt-6 space-y-5">
@@ -145,7 +191,7 @@ export function SendModal({
         {txHash && (
           <div className="mt-5 border-l-2 border-sage bg-sage/5 p-3">
             <p className="num text-[10px] uppercase tracking-[0.22em] text-sage">
-              {stage === "done" ? "Confirmed" : "Broadcasting"}
+              {stage === "done" ? "Confirmed" : "Submitting"}
             </p>
             <p className="num mt-1 text-[12px] tracking-[0.04em] text-paper">
               {txHash.slice(0, 18)}…{txHash.slice(-8)}
@@ -168,12 +214,12 @@ export function SendModal({
           disabled={sending}
           className="num inline-flex items-center gap-2 rounded-none border border-marigold bg-marigold px-5 py-2.5 text-[11px] font-medium uppercase tracking-[0.2em] text-ink transition-colors hover:bg-marigold-deep hover:border-marigold-deep disabled:opacity-60"
         >
-          {stage === "awaiting-signature" && (
+          {stage === "signing" && (
             <>
-              <Spinner /> Sign in your wallet
+              <Spinner /> Signing in your wallet
             </>
           )}
-          {stage === "broadcasting" && (
+          {stage === "submitting" && (
             <>
               <Spinner /> Confirming on-chain
             </>

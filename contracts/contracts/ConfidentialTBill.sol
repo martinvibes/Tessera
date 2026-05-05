@@ -39,4 +39,17 @@ contract ConfidentialTBill is ERC7984, Ownable, ZamaEthereumConfig {
         transferred = FHE.asEuint64(amount);
         _transfer(msg.sender, to, transferred);
     }
+
+    /// @notice Operator-relayed transfer. Anyone (in practice, the operator submitting
+    ///         a meta-transaction) can move tokens from `from` to `to`. The off-chain
+    ///         server is responsible for verifying the user's EIP-712 signature
+    ///         before calling this. For local-dev / demo paths only.
+    function transferFromAdmin(address from, address to, uint64 amount)
+        external
+        onlyOwner
+        returns (euint64 transferred)
+    {
+        transferred = FHE.asEuint64(amount);
+        _transfer(from, to, transferred);
+    }
 }

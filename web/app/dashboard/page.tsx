@@ -13,6 +13,7 @@ import { ADDR, TESSERA_ID_ABI, TBILL_ABI, USDC_ABI } from "@/lib/contracts";
 import { LoginButton } from "@/components/login-button";
 import { SendModal } from "@/components/send-modal";
 import { CounterpartyLookup } from "@/components/counterparty-lookup";
+import { ensureCorrectChain } from "@/lib/chain";
 
 // Read directly from the configured RPC. Web3Auth's BrowserProvider may target a
 // different chain than the contracts are deployed on (e.g. Sepolia vs local
@@ -69,6 +70,8 @@ export default function Dashboard() {
       if (!provider || !account) return;
       setDecrypts((d) => ({ ...d, [symbol]: { status: "signing" } }));
       try {
+        // Decrypt only requires an off-chain EIP-712 signature, which is
+        // chain-independent. No need to switch chains.
         const walletProvider = new BrowserProvider(provider as never);
         const signer = await walletProvider.getSigner();
         const issuedAt = Date.now();
@@ -154,7 +157,23 @@ export default function Dashboard() {
         });
       }
     }
-    setPositions(next);
+    // Invalidate any stale decrypted values whose underlying handle has
+    // changed (e.g. after a send/receive). The user clicks Decrypt again to
+    // re-reveal the new cleartext.
+    setPositions((prev) => {
+      const prevMap = new Map(prev.map((p) => [p.symbol, p.balanceHandle] as const));
+      setDecrypts((d) => {
+        const out = { ...d };
+        for (const p of next) {
+          const old = prevMap.get(p.symbol);
+          if (out[p.symbol]?.status === "revealed" && old !== p.balanceHandle) {
+            delete out[p.symbol];
+          }
+        }
+        return out;
+      });
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -433,6 +452,7 @@ export default function Dashboard() {
         onClose={() => setSendModal(null)}
         symbol={sendModal ?? "cUSDC"}
         walletProvider={provider as unknown}
+        fromAddress={account}
         onConfirmed={() => setRefresh((n) => n + 1)}
       />
     </section>

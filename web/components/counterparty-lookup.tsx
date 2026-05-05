@@ -32,16 +32,37 @@ export function CounterpartyLookup() {
     e?.preventDefault();
     setErr(null);
     setResult(null);
-    if (!isAddress(input)) {
+
+    // Be forgiving: trim whitespace, drop trailing junk, then re-check.
+    const cleaned = input.trim().replace(/\s+/g, "");
+    if (!/^0x[0-9a-fA-F]+$/.test(cleaned)) {
+      setErr("Address must start with 0x and contain only hex characters.");
+      return;
+    }
+    const expectedLen = 42; // 0x + 40 hex
+    if (cleaned.length !== expectedLen) {
+      const diff = cleaned.length - expectedLen;
+      setErr(
+        diff > 0
+          ? `Address is ${diff} character${diff === 1 ? "" : "s"} too long (got ${cleaned.length}, expected 42).`
+          : `Address is ${-diff} character${diff === -1 ? "" : "s"} too short (got ${cleaned.length}, expected 42).`,
+      );
+      return;
+    }
+    // Lowercase to bypass EIP-55 checksum strictness — many wallets paste with
+    // mixed case from a different network. We accept either, but normalise.
+    const normalised = cleaned.toLowerCase();
+    if (!isAddress(normalised)) {
       setErr("Not a valid Ethereum address.");
       return;
     }
+
     setBusy(true);
     try {
       const res = await fetch("/api/counterparty", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: input }),
+        body: JSON.stringify({ address: normalised }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Lookup failed");

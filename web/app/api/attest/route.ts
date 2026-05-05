@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Contract } from "ethers";
 import { TESSERA_ID_ABI } from "@/lib/contracts";
-import { getOperator, requireAddress } from "@/lib/server";
+import { getOperator, requireAddress, withOperatorTx } from "@/lib/server";
 
 export const runtime = "nodejs";
 
@@ -37,8 +37,8 @@ export async function POST(req: Request) {
 
   try {
     const tesseraIdAddress = requireAddress("TesseraID", process.env.TESSERA_ID_ADDRESS);
-    const { managed } = getOperator();
-    const contract = new Contract(tesseraIdAddress, TESSERA_ID_ABI, managed);
+    const { wallet } = getOperator();
+    const contract = new Contract(tesseraIdAddress, TESSERA_ID_ABI, wallet);
 
     // Check whether the holder already has a token; the contract reverts otherwise.
     const existing: bigint = await contract.tokenIdOf(holder);
@@ -49,9 +49,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const tx = await contract.attestClear(holder, tier, jurisdiction, aum);
-    const receipt = await tx.wait();
-    return NextResponse.json({ txHash: receipt?.hash ?? tx.hash });
+    const tx = await withOperatorTx(async () => {
+      const t = await contract.attestClear(holder, tier, jurisdiction, aum);
+      await t.wait();
+      return t;
+    });
+    return NextResponse.json({ txHash: tx.hash });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: message }, { status: 500 });

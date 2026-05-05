@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseEther } from "ethers";
-import { getOperator } from "@/lib/server";
+import { getOperator, withOperatorTx } from "@/lib/server";
 
 export const runtime = "nodejs";
 
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { provider, managed } = getOperator();
+    const { provider, wallet } = getOperator();
     const balance = await provider.getBalance(holder);
 
     // Already in the realistic range — leave alone so the user sees their
@@ -59,9 +59,15 @@ export async function POST(req: Request) {
     }
 
     // Under-funded — top up by sending from the deployer.
-    const tx = await managed.sendTransaction({ to: holder, value: TARGET_BALANCE });
-    const receipt = await tx.wait();
-    return NextResponse.json({ ok: true, txHash: receipt?.hash ?? tx.hash });
+    const tx = await withOperatorTx(async () => {
+      const t = await wallet.sendTransaction({
+        to: holder,
+        value: TARGET_BALANCE,
+      });
+      await t.wait();
+      return t;
+    });
+    return NextResponse.json({ ok: true, txHash: tx.hash });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });

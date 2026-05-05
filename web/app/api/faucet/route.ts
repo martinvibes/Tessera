@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Contract } from "ethers";
 import { TBILL_ABI, USDC_ABI } from "@/lib/contracts";
-import { getOperator, requireAddress } from "@/lib/server";
+import { getOperator, requireAddress, withOperatorTx } from "@/lib/server";
 
 export const runtime = "nodejs";
 
@@ -39,16 +39,21 @@ export async function POST(req: Request) {
   try {
     const tbillAddress = requireAddress("ConfidentialTBill", process.env.TBILL_ADDRESS);
     const usdcAddress = requireAddress("ConfidentialUSDC", process.env.USDC_ADDRESS);
-    const { managed } = getOperator();
+    const { wallet } = getOperator();
 
-    // Use the nonce-managed signer so back-to-back faucet hits don't reuse a nonce.
-    const tbill = new Contract(tbillAddress, TBILL_ABI, managed);
-    const usdc = new Contract(usdcAddress, USDC_ABI, managed);
+    const tbill = new Contract(tbillAddress, TBILL_ABI, wallet);
+    const usdc = new Contract(usdcAddress, USDC_ABI, wallet);
 
-    const tx1 = await tbill.mintClear(holder, tbillAmount);
-    await tx1.wait();
-    const tx2 = await usdc.mintClear(holder, usdcAmount);
-    await tx2.wait();
+    const tx1 = await withOperatorTx(async () => {
+      const t = await tbill.mintClear(holder, tbillAmount);
+      await t.wait();
+      return t;
+    });
+    const tx2 = await withOperatorTx(async () => {
+      const t = await usdc.mintClear(holder, usdcAmount);
+      await t.wait();
+      return t;
+    });
 
     return NextResponse.json({
       ok: true,

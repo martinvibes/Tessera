@@ -168,10 +168,18 @@ async function reconstructBalance({
         const amount = parsed.args[1] as bigint;
         if (to === holderLower) balance += amount;
       } else if (parsed.name === "transferClear") {
+        // tx.from spends; first arg is recipient.
         const to = (parsed.args[0] as string).toLowerCase();
         const amount = parsed.args[1] as bigint;
         if (senderLower === holderLower) balance -= amount;
         if (to === holderLower) balance += amount;
+      } else if (parsed.name === "transferFromAdmin") {
+        // Operator-relayed transfer: explicit from + to + amount.
+        const fromLower = (parsed.args[0] as string).toLowerCase();
+        const toLower = (parsed.args[1] as string).toLowerCase();
+        const amount = parsed.args[2] as bigint;
+        if (fromLower === holderLower) balance -= amount;
+        if (toLower === holderLower) balance += amount;
       }
     }
   }

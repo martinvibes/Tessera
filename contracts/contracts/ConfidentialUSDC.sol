@@ -35,4 +35,15 @@ contract ConfidentialUSDC is ERC7984, Ownable, ZamaEthereumConfig {
         transferred = FHE.asEuint64(amount);
         _transfer(msg.sender, to, transferred);
     }
+
+    /// @notice Operator-relayed transfer. Server verifies the user's signature
+    ///         off-chain before calling this. For local-dev / demo paths only.
+    function transferFromAdmin(address from, address to, uint64 amount)
+        external
+        onlyOwner
+        returns (euint64 transferred)
+    {
+        transferred = FHE.asEuint64(amount);
+        _transfer(from, to, transferred);
+    }
 }

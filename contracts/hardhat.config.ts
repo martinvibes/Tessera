@@ -15,6 +15,17 @@ import "./tasks/accounts";
 
 const MNEMONIC: string = vars.get("MNEMONIC", "test test test test test test test test test test test junk");
 const INFURA_API_KEY: string = vars.get("INFURA_API_KEY", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
+const SEPOLIA_PRIVATE_KEY: string = vars.get("SEPOLIA_PRIVATE_KEY", "");
+const SEPOLIA_RPC_URL: string = vars.get(
+  "SEPOLIA_RPC_URL",
+  `https://sepolia.infura.io/v3/${INFURA_API_KEY}`,
+);
+
+// If a private key is provided, use it directly; otherwise derive accounts
+// from the mnemonic.
+const sepoliaAccounts = SEPOLIA_PRIVATE_KEY
+  ? [SEPOLIA_PRIVATE_KEY.startsWith("0x") ? SEPOLIA_PRIVATE_KEY : `0x${SEPOLIA_PRIVATE_KEY}`]
+  : { mnemonic: MNEMONIC, path: "m/44'/60'/0'/0/", count: 10 };
 
 const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
@@ -48,13 +59,9 @@ const config: HardhatUserConfig = {
       url: "http://localhost:8545",
     },
     sepolia: {
-      accounts: {
-        mnemonic: MNEMONIC,
-        path: "m/44'/60'/0'/0/",
-        count: 10,
-      },
+      accounts: sepoliaAccounts,
       chainId: 11155111,
-      url: `https://sepolia.infura.io/v3/${INFURA_API_KEY}`,
+      url: SEPOLIA_RPC_URL,
     },
   },
   paths: {

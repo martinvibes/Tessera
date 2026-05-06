@@ -17,6 +17,7 @@ import { CounterpartyLookup } from "@/components/counterparty-lookup";
 import { OrderBookPanel } from "@/components/orderbook-panel";
 import { ActivityPanel } from "@/components/activity-panel";
 import { TxLink } from "@/components/tx-link";
+import { CipherDigits } from "@/components/cipher-digits";
 
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? "http://127.0.0.1:8545";
 const CHAIN_NAME = process.env.NEXT_PUBLIC_CHAIN_NAME ?? "Local";
@@ -273,32 +274,35 @@ export default function Dashboard() {
   return (
     <section className="relative w-full px-4 py-10 sm:px-6 md:px-10 md:py-16">
       {/* Greeting */}
-      <header className="mx-auto mb-10 max-w-[1280px] md:mb-12">
-        <p className="num text-[11px] uppercase tracking-[0.32em] text-marigold">
-          Dashboard
-        </p>
-        <h1 className="mt-3 font-display text-[clamp(32px,4.4vw,56px)] font-light leading-[1.05] tracking-[-0.02em] text-paper">
-          Welcome back, {firstName}.
-        </h1>
-        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px] text-paper-dim sm:text-[13px]">
-          <WalletBadge address={account} />
-          <span className="num inline-flex items-center gap-2">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inset-0 animate-ping rounded-full bg-sage opacity-50" />
-              <span className="relative h-1.5 w-1.5 rounded-full bg-sage" />
+      <header className="mx-auto mb-10 flex max-w-[1280px] items-start justify-between gap-4 md:mb-12">
+        <div>
+          <p className="num text-[11px] uppercase tracking-[0.32em] text-marigold">
+            Dashboard
+          </p>
+          <h1 className="mt-3 font-display text-[clamp(32px,4.4vw,56px)] font-light leading-[1.05] tracking-[-0.02em] text-paper">
+            Welcome back, {firstName}.
+          </h1>
+          <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px] text-paper-dim sm:text-[13px]">
+            <WalletBadge address={account} />
+            <span className="num inline-flex items-center gap-2">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inset-0 animate-ping rounded-full bg-sage opacity-50" />
+                <span className="relative h-1.5 w-1.5 rounded-full bg-sage" />
+              </span>
+              {CHAIN_NAME}
+              {chainId !== null && (
+                <span className="text-paper-faint">· chain {chainId}</span>
+              )}
             </span>
-            {CHAIN_NAME}
-            {chainId !== null && (
-              <span className="text-paper-faint">· chain {chainId}</span>
+            {ethBalance !== null && (
+              <span className="num">
+                {Number(formatEther(ethBalance)).toFixed(4)} ETH
+                <span className="ml-1 text-paper-faint">for fees</span>
+              </span>
             )}
-          </span>
-          {ethBalance !== null && (
-            <span className="num">
-              {Number(formatEther(ethBalance)).toFixed(4)} ETH
-              <span className="ml-1 text-paper-faint">for fees</span>
-            </span>
-          )}
+          </div>
         </div>
+        <RefreshButton onClick={() => setRefresh((n) => n + 1)} />
       </header>
 
       <div className="mx-auto grid max-w-[1280px] grid-cols-12 gap-4 sm:gap-6">
@@ -474,6 +478,47 @@ function Panel({
       </div>
       <div className="px-6 py-6">{children}</div>
     </motion.div>
+  );
+}
+
+function RefreshButton({ onClick }: { onClick: () => void }) {
+  const [spinning, setSpinning] = useState(false);
+  function go() {
+    setSpinning(true);
+    onClick();
+    setTimeout(() => setSpinning(false), 700);
+  }
+  return (
+    <button
+      onClick={go}
+      title="Refresh balances and identity"
+      aria-label="Refresh"
+      className="num inline-flex shrink-0 items-center gap-2 border border-rule px-3 py-2 text-[10px] uppercase tracking-[0.22em] text-paper-dim transition-colors hover:border-marigold hover:text-marigold"
+    >
+      <RefreshIcon spinning={spinning} />
+      <span className="hidden sm:inline">Refresh</span>
+    </button>
+  );
+}
+
+function RefreshIcon({ spinning = false }: { spinning?: boolean }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden
+      className={spinning ? "animate-spin" : ""}
+    >
+      <path
+        d="M2 6a4 4 0 0 1 7-2.6M10 6a4 4 0 0 1-7 2.6M9 1.5V4H6.5M3 10.5V8h2.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="square"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -723,11 +768,9 @@ function PositionCard({
             </div>
           ) : (
             <div>
-              <p className="font-display text-[40px] font-light leading-none tracking-tight text-paper">
-                ▢▢▢ ▢▢▢
-              </p>
-              <p className="num mt-3 inline-flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-sage">
-                <Lock /> Encrypted on-chain
+              <CipherDigits />
+              <p className="num mt-4 text-[11px] tracking-[0.04em] text-paper-faint">
+                Only you can see this. Click <span className="text-paper">Reveal</span> to unlock.
               </p>
               {decryptState.status === "error" && (
                 <p className="num mt-2 break-words text-[10px] uppercase tracking-[0.18em] text-crimson">

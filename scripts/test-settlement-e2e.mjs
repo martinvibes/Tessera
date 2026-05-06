@@ -8,7 +8,7 @@
 import { Wallet, JsonRpcProvider, Contract } from "ethers";
 
 const RPC = "http://localhost:3000";
-const RPC_URL = "http://127.0.0.1:8545";
+const RPC_URL = process.env.RPC_URL ?? "http://127.0.0.1:8545";
 
 const ALICE_PK =
   "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"; // hh acct #1
@@ -106,9 +106,17 @@ console.log(`Bob:        ${bobAddr}`);
 console.log(`Settlement: ${SETTLEMENT}`);
 console.log(`Chain ID:   ${CHAIN_ID}\n`);
 
-await step("Fund both", async () => {
-  await fund(aliceAddr);
-  await fund(bobAddr);
+await step("Fund both (skipped on non-local)", async () => {
+  try {
+    await fund(aliceAddr);
+    await fund(bobAddr);
+    return "funded";
+  } catch (e) {
+    if (String(e.message).includes("Forbidden") || String(e.message).includes("disabled")) {
+      return "skipped (gasless flow — operator pays)";
+    }
+    throw e;
+  }
 });
 await step("Faucet to Alice", () => faucet(aliceAddr));
 await step("Faucet to Bob", () => faucet(bobAddr));

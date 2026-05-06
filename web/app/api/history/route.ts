@@ -12,6 +12,7 @@ import {
   TESSERA_ID_ABI,
   SETTLEMENT_ABI,
 } from "@/lib/contracts";
+import { getLogsChunked } from "@/lib/log-scanner";
 
 export const runtime = "nodejs";
 
@@ -23,7 +24,6 @@ const TYPES = {
     { name: "issuedAt", type: "uint256" },
   ],
 } as const;
-
 const MAX_AGE_MS = 5 * 60 * 1000;
 
 type EventKind =
@@ -36,7 +36,6 @@ type EventKind =
 
 type HistoryEvent = {
   kind: EventKind;
-  /** Token symbol if applicable. */
   symbol?: "cTBILL" | "cUSDC";
   amount?: string;
   counterparty?: string;
@@ -47,18 +46,11 @@ type HistoryEvent = {
 
 type Body = {
   holder: string;
-  /** A token address — used as the EIP-712 `token` field for sig binding. */
   token: string;
   issuedAt: number;
   signature: string;
 };
 
-/**
- * Returns the holder's full activity timeline by scanning calldata against
- * each known contract. Authenticated by the same EIP-712 `Decrypt` signature
- * the balance reveal uses — the user proves they own the address before the
- * server discloses the cleartext amounts they were party to.
- */
 export async function POST(req: Request) {
   let body: Body;
   try {
@@ -109,169 +101,184 @@ export async function POST(req: Request) {
   const events: HistoryEvent[] = [];
 
   try {
+    const fromEnv = parseInt(process.env.SCAN_FROM_BLOCK ?? "0", 10);
+    const startBlock = Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 0;
+
+    // Fetch logs from each contract since deployment, chunked to fit
+    // the Alchemy free-tier 10-block window.
     const latest = await provider.getBlockNumber();
-    for (let n = 0; n <= latest; n++) {
-      const block = await provider.getBlock(n, true);
-      if (!block) continue;
-      const ts = Number(block.timestamp);
-      for (const txOrHash of block.transactions) {
-        const tx =
-          typeof txOrHash === "string"
-            ? await provider.getTransaction(txOrHash)
-            : txOrHash;
-        if (!tx || !tx.to) continue;
-        const toLower = tx.to.toLowerCase();
-        const senderLower = (tx.from ?? ZeroAddress).toLowerCase();
+    const [idLogs, tbillLogs, usdcLogs, settleLogs] = await Promise.all([
+      getLogsChunked(provider, { address: tesseraId, fromBlock: startBlock, toBlock: latest }),
+      getLogsChunked(provider, { address: tbill, fromBlock: startBlock, toBlock: latest }),
+      getLogsChunked(provider, { address: usdc, fromBlock: startBlock, toBlock: latest }),
+      getLogsChunked(provider, { address: settlement, fromBlock: startBlock, toBlock: latest }),
+    ]);
 
-        const receipt = await provider.getTransactionReceipt(tx.hash);
-        if (!receipt || receipt.status !== 1) continue;
+    // Collect unique tx hashes (a single tx may emit logs on multiple of our
+    // contracts — e.g. settleAtomic emits on Settlement AND both tokens).
+    // We route each fetched tx by its actual `tx.to` later.
+    type TxRef = { hash: string; blockNumber: number; index: number };
+    const refMap = new Map<string, TxRef>();
+    for (const l of [...idLogs, ...tbillLogs, ...usdcLogs, ...settleLogs]) {
+      if (!refMap.has(l.transactionHash)) {
+        refMap.set(l.transactionHash, {
+          hash: l.transactionHash,
+          blockNumber: l.blockNumber,
+          index: l.transactionIndex ?? 0,
+        });
+      }
+    }
+    const refs = Array.from(refMap.values()).sort((a, b) =>
+      a.blockNumber - b.blockNumber !== 0
+        ? a.blockNumber - b.blockNumber
+        : a.index - b.index,
+    );
 
-        const base = {
-          blockNumber: n,
-          timestamp: ts,
-          txHash: tx.hash,
-        };
+    // Cache block timestamps to avoid re-fetching.
+    const blockTimes = new Map<number, number>();
+    async function getBlockTime(n: number): Promise<number> {
+      if (blockTimes.has(n)) return blockTimes.get(n)!;
+      const block = await provider.getBlock(n);
+      const t = block ? Number(block.timestamp) : 0;
+      blockTimes.set(n, t);
+      return t;
+    }
 
-        if (toLower === tesseraId) {
-          let parsed;
-          try {
-            parsed = idIface.parseTransaction({ data: tx.data, value: tx.value });
-          } catch {
-            continue;
-          }
-          if (!parsed) continue;
-          if (parsed.name === "attestClear" || parsed.name === "attest") {
-            const holderArg = (parsed.args[0] as string).toLowerCase();
-            if (holderArg === holderLower) {
-              events.push({ kind: "attest", ...base });
-            }
-          }
+    for (const ref of refs) {
+      const tx = await provider.getTransaction(ref.hash);
+      if (!tx || !tx.to) continue;
+      const callTarget = tx.to.toLowerCase();
+
+      const ts = await getBlockTime(ref.blockNumber);
+      const senderLower = (tx.from ?? ZeroAddress).toLowerCase();
+      const base = { blockNumber: ref.blockNumber, timestamp: ts, txHash: tx.hash };
+
+      if (callTarget === tesseraId) {
+        let parsed;
+        try {
+          parsed = idIface.parseTransaction({ data: tx.data, value: tx.value });
+        } catch {
           continue;
         }
-
-        if (toLower === tbill || toLower === usdc) {
-          const iface = toLower === tbill ? tbillIface : usdcIface;
-          const symbol: "cTBILL" | "cUSDC" = toLower === tbill ? "cTBILL" : "cUSDC";
-          let parsed;
-          try {
-            parsed = iface.parseTransaction({ data: tx.data, value: tx.value });
-          } catch {
-            continue;
-          }
-          if (!parsed) continue;
-
-          if (parsed.name === "mintClear") {
-            const to = (parsed.args[0] as string).toLowerCase();
-            const amount = parsed.args[1] as bigint;
-            if (to === holderLower) {
-              events.push({
-                kind: "mint",
-                symbol,
-                amount: amount.toString(),
-                ...base,
-              });
-            }
-          } else if (parsed.name === "transferClear") {
-            const to = (parsed.args[0] as string).toLowerCase();
-            const amount = parsed.args[1] as bigint;
-            if (senderLower === holderLower) {
-              events.push({
-                kind: "send",
-                symbol,
-                amount: amount.toString(),
-                counterparty: to,
-                ...base,
-              });
-            } else if (to === holderLower) {
-              events.push({
-                kind: "receive",
-                symbol,
-                amount: amount.toString(),
-                counterparty: senderLower,
-                ...base,
-              });
-            }
-          } else if (parsed.name === "transferFromAdmin") {
-            const fromArg = (parsed.args[0] as string).toLowerCase();
-            const toArg = (parsed.args[1] as string).toLowerCase();
-            const amount = parsed.args[2] as bigint;
-            if (fromArg === holderLower) {
-              events.push({
-                kind: "send",
-                symbol,
-                amount: amount.toString(),
-                counterparty: toArg,
-                ...base,
-              });
-            } else if (toArg === holderLower) {
-              events.push({
-                kind: "receive",
-                symbol,
-                amount: amount.toString(),
-                counterparty: fromArg,
-                ...base,
-              });
-            }
-          }
+        if (!parsed) continue;
+        if (parsed.name === "attestClear" || parsed.name === "attest") {
+          const holderArg = (parsed.args[0] as string).toLowerCase();
+          if (holderArg === holderLower) events.push({ kind: "attest", ...base });
+        }
+      } else if (callTarget === tbill || callTarget === usdc) {
+        const iface = callTarget === tbill ? tbillIface : usdcIface;
+        const symbol: "cTBILL" | "cUSDC" = callTarget === tbill ? "cTBILL" : "cUSDC";
+        let parsed;
+        try {
+          parsed = iface.parseTransaction({ data: tx.data, value: tx.value });
+        } catch {
           continue;
         }
+        if (!parsed) continue;
 
-        if (toLower === settlement) {
-          let parsed;
-          try {
-            parsed = settleIface.parseTransaction({ data: tx.data, value: tx.value });
-          } catch {
-            continue;
-          }
-          if (
-            !parsed ||
-            (parsed.name !== "settleAtomic" && parsed.name !== "settleOpenOffer")
-          )
-            continue;
-
-          const seller = (parsed.args[0] as string).toLowerCase();
-          const taker = (parsed.args[1] as string).toLowerCase();
-          const sellAsset = (parsed.args[2] as string).toLowerCase();
-          const buyAsset = (parsed.args[3] as string).toLowerCase();
-          const sellAmount = parsed.args[4] as bigint;
-          const buyAmount = parsed.args[5] as bigint;
-
-          const sellSym: "cTBILL" | "cUSDC" =
-            sellAsset === tbill ? "cTBILL" : "cUSDC";
-          const buySym: "cTBILL" | "cUSDC" =
-            buyAsset === tbill ? "cTBILL" : "cUSDC";
-
-          if (seller === holderLower) {
+        if (parsed.name === "mintClear") {
+          const to = (parsed.args[0] as string).toLowerCase();
+          const amount = parsed.args[1] as bigint;
+          if (to === holderLower)
             events.push({
-              kind: "trade-sold",
-              symbol: sellSym,
-              amount: sellAmount.toString(),
-              counterparty: taker,
+              kind: "mint",
+              symbol,
+              amount: amount.toString(),
               ...base,
             });
+        } else if (parsed.name === "transferClear") {
+          const to = (parsed.args[0] as string).toLowerCase();
+          const amount = parsed.args[1] as bigint;
+          if (senderLower === holderLower)
             events.push({
-              kind: "trade-bought",
-              symbol: buySym,
-              amount: buyAmount.toString(),
-              counterparty: taker,
+              kind: "send",
+              symbol,
+              amount: amount.toString(),
+              counterparty: to,
               ...base,
             });
-          } else if (taker === holderLower) {
+          else if (to === holderLower)
             events.push({
-              kind: "trade-bought",
-              symbol: sellSym,
-              amount: sellAmount.toString(),
-              counterparty: seller,
+              kind: "receive",
+              symbol,
+              amount: amount.toString(),
+              counterparty: senderLower,
               ...base,
             });
+        } else if (parsed.name === "transferFromAdmin") {
+          const fromArg = (parsed.args[0] as string).toLowerCase();
+          const toArg = (parsed.args[1] as string).toLowerCase();
+          const amount = parsed.args[2] as bigint;
+          if (fromArg === holderLower)
             events.push({
-              kind: "trade-sold",
-              symbol: buySym,
-              amount: buyAmount.toString(),
-              counterparty: seller,
+              kind: "send",
+              symbol,
+              amount: amount.toString(),
+              counterparty: toArg,
               ...base,
             });
-          }
+          else if (toArg === holderLower)
+            events.push({
+              kind: "receive",
+              symbol,
+              amount: amount.toString(),
+              counterparty: fromArg,
+              ...base,
+            });
+        }
+      } else if (callTarget === settlement) {
+        let parsed;
+        try {
+          parsed = settleIface.parseTransaction({ data: tx.data, value: tx.value });
+        } catch {
+          continue;
+        }
+        if (
+          !parsed ||
+          (parsed.name !== "settleAtomic" && parsed.name !== "settleOpenOffer")
+        )
+          continue;
+
+        const seller = (parsed.args[0] as string).toLowerCase();
+        const taker = (parsed.args[1] as string).toLowerCase();
+        const sellAsset = (parsed.args[2] as string).toLowerCase();
+        const buyAsset = (parsed.args[3] as string).toLowerCase();
+        const sellAmount = parsed.args[4] as bigint;
+        const buyAmount = parsed.args[5] as bigint;
+
+        const sellSym: "cTBILL" | "cUSDC" = sellAsset === tbill ? "cTBILL" : "cUSDC";
+        const buySym: "cTBILL" | "cUSDC" = buyAsset === tbill ? "cTBILL" : "cUSDC";
+
+        if (seller === holderLower) {
+          events.push({
+            kind: "trade-sold",
+            symbol: sellSym,
+            amount: sellAmount.toString(),
+            counterparty: taker,
+            ...base,
+          });
+          events.push({
+            kind: "trade-bought",
+            symbol: buySym,
+            amount: buyAmount.toString(),
+            counterparty: taker,
+            ...base,
+          });
+        } else if (taker === holderLower) {
+          events.push({
+            kind: "trade-bought",
+            symbol: sellSym,
+            amount: sellAmount.toString(),
+            counterparty: seller,
+            ...base,
+          });
+          events.push({
+            kind: "trade-sold",
+            symbol: buySym,
+            amount: buyAmount.toString(),
+            counterparty: seller,
+            ...base,
+          });
         }
       }
     }

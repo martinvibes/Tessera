@@ -6,16 +6,9 @@ import { BrowserProvider } from "ethers";
 import { motion } from "motion/react";
 import { useWeb3Auth, useWeb3AuthConnect } from "@web3auth/modal/react";
 import { ADDR } from "@/lib/contracts";
+import { COUNTRIES } from "@/lib/countries";
 import { LoginButton } from "@/components/login-button";
-
-const JURISDICTIONS = [
-  { code: 826, label: "United Kingdom" },
-  { code: 840, label: "United States" },
-  { code: 276, label: "Germany" },
-  { code: 250, label: "France" },
-  { code: 756, label: "Switzerland" },
-  { code: 702, label: "Singapore" },
-];
+import { SearchableSelect } from "@/components/searchable-select";
 
 const TIERS = [
   { value: 1, label: "Regulated bank or major institution" },
@@ -133,10 +126,11 @@ export default function OnboardPage() {
         </Field>
 
         <Field n={2} label="Where is the firm based?" privacy>
-          <ChipGroup
-            options={JURISDICTIONS}
+          <SearchableSelect
+            options={COUNTRIES}
             value={jurisdiction}
             onChange={setJurisdiction}
+            placeholder="Select a country"
           />
         </Field>
 

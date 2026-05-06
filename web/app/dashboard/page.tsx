@@ -18,6 +18,7 @@ import { OrderBookPanel } from "@/components/orderbook-panel";
 import { ActivityPanel } from "@/components/activity-panel";
 import { TxLink } from "@/components/tx-link";
 import { CipherDigits } from "@/components/cipher-digits";
+import { DepositModal, WithdrawModal } from "@/components/deposit-modal";
 
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL ?? "http://127.0.0.1:8545";
 const CHAIN_NAME = process.env.NEXT_PUBLIC_CHAIN_NAME ?? "Local";
@@ -65,6 +66,8 @@ export default function Dashboard() {
   }>({ busy: false, err: null, tx: null });
   const [sendModal, setSendModal] = useState<"cTBILL" | "cUSDC" | null>(null);
   const [tradeModal, setTradeModal] = useState<"cTBILL" | "cUSDC" | null>(null);
+  const [depositOpen, setDepositOpen] = useState(false);
+  const [withdrawModal, setWithdrawModal] = useState<"cTBILL" | "cUSDC" | null>(null);
   const [decrypts, setDecrypts] = useState<Record<string, DecryptState>>({});
   const [showLookup, setShowLookup] = useState(false);
 
@@ -347,6 +350,7 @@ export default function Dashboard() {
                   decryptState={decrypts[p.symbol] ?? { status: "encrypted" }}
                   onSend={() => setSendModal(p.symbol)}
                   onTrade={() => setTradeModal(p.symbol)}
+                  onWithdraw={() => setWithdrawModal(p.symbol)}
                   onDecrypt={() => decryptBalance(p.symbol, p.address)}
                 />
               ))}
@@ -363,6 +367,8 @@ export default function Dashboard() {
             onClaim={claimFaucet}
             onSend={() => setSendModal(anyBalance ? "cUSDC" : "cTBILL")}
             onTrade={() => setTradeModal("cTBILL")}
+            onDeposit={() => setDepositOpen(true)}
+            onWithdraw={() => setWithdrawModal("cUSDC")}
           />
         </div>
 
@@ -440,6 +446,12 @@ export default function Dashboard() {
         sellSymbol={tradeModal ?? "cTBILL"}
         walletProvider={provider as unknown}
         fromAddress={account}
+      />
+      <DepositModal open={depositOpen} onClose={() => setDepositOpen(false)} />
+      <WithdrawModal
+        open={withdrawModal !== null}
+        onClose={() => setWithdrawModal(null)}
+        symbol={withdrawModal ?? "cUSDC"}
       />
     </section>
   );
@@ -631,12 +643,16 @@ function QuickActions({
   onClaim,
   onSend,
   onTrade,
+  onDeposit,
+  onWithdraw,
 }: {
   anyBalance: boolean;
   faucet: { busy: boolean; err: string | null; tx: string | null };
   onClaim: () => void;
   onSend: () => void;
   onTrade: () => void;
+  onDeposit: () => void;
+  onWithdraw: () => void;
 }) {
   return (
     <div className="border border-rule bg-ink-2/40">
@@ -646,6 +662,13 @@ function QuickActions({
         </p>
       </div>
       <div className="space-y-2 p-3">
+        <ActionButton
+          icon={<DepositIcon />}
+          label="Deposit"
+          desc="Convert USDC, wire, or bank transfer into confidential balances."
+          onClick={onDeposit}
+          tag=""
+        />
         <ActionButton
           icon={<PlusIcon />}
           label={anyBalance ? "Top up test tokens" : "Get test tokens"}
@@ -666,6 +689,14 @@ function QuickActions({
           desc="Swap one asset for another atomically. Open to anyone or to a specific buyer."
           onClick={onTrade}
           disabled={!anyBalance}
+        />
+        <ActionButton
+          icon={<WithdrawIcon />}
+          label="Withdraw"
+          desc="Redeem confidential balances back to USD or USDC."
+          onClick={onWithdraw}
+          disabled={!anyBalance}
+          tag=""
         />
       </div>
       {faucet.tx && (
@@ -689,6 +720,7 @@ function ActionButton({
   onClick,
   busy = false,
   disabled = false,
+  tag,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -696,6 +728,8 @@ function ActionButton({
   onClick: () => void;
   busy?: boolean;
   disabled?: boolean;
+  /** Optional small badge — currently only "soon" renders, anything else is ignored. */
+  tag?: string;
 }) {
   return (
     <button
@@ -706,9 +740,16 @@ function ActionButton({
       <span className="grid h-8 w-8 shrink-0 place-items-center border border-rule-2 text-paper-dim transition-colors group-hover:border-marigold group-hover:text-marigold">
         {busy ? <Spinner /> : icon}
       </span>
-      <span className="min-w-0">
-        <span className="block text-[14px] font-medium text-paper">{label}</span>
-        <span className="block text-[12px] leading-snug text-paper-dim">
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span className="text-[14px] font-medium text-paper">{label}</span>
+          {tag === "soon" && (
+            <span className="num inline-flex items-center border border-marigold/40 bg-marigold/[0.04] px-1.5 py-0.5 text-[8.5px] uppercase tracking-[0.18em] text-marigold">
+              Soon
+            </span>
+          )}
+        </span>
+        <span className="mt-0.5 block text-[12px] leading-snug text-paper-dim">
           {desc}
         </span>
       </span>
@@ -721,12 +762,14 @@ function PositionCard({
   decryptState,
   onSend,
   onTrade,
+  onWithdraw,
   onDecrypt,
 }: {
   p: Position;
   decryptState: DecryptState;
   onSend: () => void;
   onTrade: () => void;
+  onWithdraw: () => void;
   onDecrypt: () => void;
 }) {
   const has = !!(p.balanceHandle && p.balanceHandle !== ZERO_HANDLE);
@@ -824,6 +867,9 @@ function PositionCard({
         </CardButton>
         <CardButton onClick={onTrade} disabled={!has}>
           Trade
+        </CardButton>
+        <CardButton onClick={onWithdraw} disabled={!has}>
+          Withdraw
         </CardButton>
       </div>
     </article>
@@ -978,6 +1024,34 @@ function TradeIcon() {
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
       <path
         d="M2 4h9M9 1l3 3-3 3M12 10H3M5 13L2 10l3-3"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="square"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function DepositIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path
+        d="M7 1.5v8M3 6l4 4 4-4M2 12.5h10"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="square"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function WithdrawIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path
+        d="M7 12V4M3 7l4-4 4 4M2 1.5h10"
         stroke="currentColor"
         strokeWidth="1.3"
         strokeLinecap="square"

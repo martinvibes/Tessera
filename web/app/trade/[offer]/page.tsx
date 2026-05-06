@@ -260,7 +260,7 @@ export default function TradeAcceptPage({
         open={confirmOpen}
         terms={decoded?.terms ?? null}
         busy={busy}
-        status={acceptStatus === "idle" ? "idle" : acceptStatus}
+        status={acceptStatus === "error" ? "idle" : acceptStatus}
         error={acceptStatus === "error" ? acceptErr : null}
         onCancel={closeConfirm}
         onConfirm={handleConfirm}

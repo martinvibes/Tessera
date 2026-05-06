@@ -10,15 +10,18 @@ import { TBILL_ABI, USDC_ABI, SETTLEMENT_ABI } from "@/lib/contracts";
 import { getLogsChunked } from "@/lib/log-scanner";
 
 export const runtime = "nodejs";
+// Log scanning across many blocks can exceed Vercel's default 10s. Allow up
+// to 60s on Pro tiers (no-op on Hobby — the function would still execute).
+export const maxDuration = 60;
 
-const DOMAIN = { name: "Tessera", version: "1" } as const;
+const DOMAIN = { name: "Tessera", version: "1" };
 const TYPES = {
   Decrypt: [
     { name: "holder", type: "address" },
     { name: "token", type: "address" },
     { name: "issuedAt", type: "uint256" },
   ],
-} as const;
+};
 const MAX_AGE_MS = 5 * 60 * 1000;
 
 type Body = {

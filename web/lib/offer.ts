@@ -44,7 +44,7 @@ export const DvP_TYPES = {
     { name: "nonce", type: "uint64" },
     { name: "deadline", type: "uint256" },
   ],
-} as const;
+};
 
 export function termsValueForSigning(t: OfferTerms) {
   return {

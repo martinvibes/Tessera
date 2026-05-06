@@ -4,6 +4,7 @@ import { TBILL_ABI, USDC_ABI } from "@/lib/contracts";
 import { getOperator, requireAddress, withOperatorTx } from "@/lib/server";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const DEFAULT_TBILL = 1_000_000n; // arbitrary "T-Bill units" for the demo
 const DEFAULT_USDC = 250_000n;    // arbitrary "USDC" balance

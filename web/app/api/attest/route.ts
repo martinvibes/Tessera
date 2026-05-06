@@ -4,6 +4,7 @@ import { TESSERA_ID_ABI } from "@/lib/contracts";
 import { getOperator, requireAddress, withOperatorTx } from "@/lib/server";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 type AttestBody = {
   holder: string;

@@ -10,10 +10,26 @@ import {
   useTransform,
 } from "motion/react";
 import { useWeb3AuthConnect } from "@web3auth/modal/react";
-import { AnimatedTessellation } from "@/components/animated-tessellation";
-import { EncryptedTicker } from "@/components/encrypted-ticker";
-import { DecryptText } from "@/components/decrypt-text";
-import { CursorGlow } from "@/components/cursor-glow";
+import dynamic from "next/dynamic";
+
+// Lazy-load heavy animation components so the page shell renders fast.
+// These stream in after the initial paint — no visible delay.
+const AnimatedTessellation = dynamic(
+  () => import("@/components/animated-tessellation").then((m) => m.AnimatedTessellation),
+  { ssr: false },
+);
+const EncryptedTicker = dynamic(
+  () => import("@/components/encrypted-ticker").then((m) => m.EncryptedTicker),
+  { ssr: false },
+);
+const DecryptText = dynamic(
+  () => import("@/components/decrypt-text").then((m) => m.DecryptText),
+  { ssr: false, loading: () => <span /> },
+);
+const CursorGlow = dynamic(
+  () => import("@/components/cursor-glow").then((m) => m.CursorGlow),
+  { ssr: false },
+);
 
 export default function Home() {
   const reduce = useReducedMotion();

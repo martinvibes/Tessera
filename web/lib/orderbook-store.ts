@@ -18,7 +18,7 @@ export type OrderBookEntry = {
   settledTxHash?: string;
 };
 
-const DOMAIN = { name: "Tessera", version: "1" } as const;
+const DOMAIN = { name: "Tessera", version: "1" };
 const TYPES = {
   DvP: [
     { name: "seller", type: "address" },
@@ -30,7 +30,7 @@ const TYPES = {
     { name: "nonce", type: "uint64" },
     { name: "deadline", type: "uint256" },
   ],
-} as const;
+};
 
 declare global {
   // eslint-disable-next-line no-var

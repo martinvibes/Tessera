@@ -15,15 +15,18 @@ import {
 import { getLogsChunked } from "@/lib/log-scanner";
 
 export const runtime = "nodejs";
+// Log scanning across many blocks can exceed Vercel's default 10s. Pro tiers
+// honour this; Hobby ignores and uses 10s.
+export const maxDuration = 60;
 
-const DOMAIN = { name: "Tessera", version: "1" } as const;
+const DOMAIN = { name: "Tessera", version: "1" };
 const TYPES = {
   Decrypt: [
     { name: "holder", type: "address" },
     { name: "token", type: "address" },
     { name: "issuedAt", type: "uint256" },
   ],
-} as const;
+};
 const MAX_AGE_MS = 5 * 60 * 1000;
 
 type EventKind =

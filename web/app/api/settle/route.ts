@@ -4,6 +4,8 @@ import { SETTLEMENT_ABI } from "@/lib/contracts";
 import { getOperator, requireAddress, withOperatorTx } from "@/lib/server";
 
 export const runtime = "nodejs";
+// Sepolia block confirmation can take ~12s. Allow headroom for atomic settle.
+export const maxDuration = 60;
 
 type SettleBody = {
   seller: string;

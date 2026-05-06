@@ -4,11 +4,12 @@ import { TBILL_ABI, USDC_ABI } from "@/lib/contracts";
 import { getOperator, requireAddress, withOperatorTx } from "@/lib/server";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const DOMAIN = {
   name: "Tessera",
   version: "1",
-} as const;
+};
 
 const TYPES = {
   Transfer: [
@@ -18,7 +19,7 @@ const TYPES = {
     { name: "amount", type: "uint64" },
     { name: "issuedAt", type: "uint256" },
   ],
-} as const;
+};
 
 const MAX_AGE_MS = 5 * 60 * 1000;
 

@@ -5,8 +5,9 @@ import { getOperator, requireAddress, withOperatorTx } from "@/lib/server";
 import { getOffer, markSettled } from "@/lib/orderbook-store";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
-const DOMAIN = { name: "Tessera", version: "1" } as const;
+const DOMAIN = { name: "Tessera", version: "1" };
 const TYPES = {
   DvP: [
     { name: "seller", type: "address" },
@@ -18,7 +19,7 @@ const TYPES = {
     { name: "nonce", type: "uint64" },
     { name: "deadline", type: "uint256" },
   ],
-} as const;
+};
 
 type Body = {
   offerId: string;

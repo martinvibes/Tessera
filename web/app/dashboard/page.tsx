@@ -14,7 +14,7 @@ import { LoginButton } from "@/components/login-button";
 import { SendModal } from "@/components/send-modal";
 import { TradeModal } from "@/components/trade-modal";
 import { CounterpartyLookup } from "@/components/counterparty-lookup";
-import { OrderBookPanel } from "@/components/orderbook-panel";
+// OrderBookPanel removed — in-memory order book doesn't persist on Vercel serverless.
 import { ActivityPanel } from "@/components/activity-panel";
 import { TxLink } from "@/components/tx-link";
 import { CipherDigits } from "@/components/cipher-digits";
@@ -372,17 +372,19 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Live offers */}
+        {/* Trade info */}
         <div className="col-span-12">
           <Panel
-            title="Live offers"
-            subtitle="Open trades posted by other users. Click Take to swap."
+            title="Trading"
+            subtitle="Create a trade offer and share the link. Anyone with the link can accept — both legs settle atomically."
           >
-            <OrderBookPanel
-              walletProvider={provider as unknown}
-              account={account}
-              onSettled={() => setRefresh((n) => n + 1)}
-            />
+            <div className="flex items-center gap-3 py-2 text-[13px] text-paper-dim">
+              <Pulse />
+              <span>
+                Click <span className="text-paper">Trade</span> on a position card to create an offer link.
+                Share it with your counterparty — when they sign, both legs settle in one transaction.
+              </span>
+            </div>
           </Panel>
         </div>
 
@@ -970,6 +972,15 @@ function Arrow() {
 function Spinner() {
   return (
     <span className="inline-block h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+  );
+}
+
+function Pulse() {
+  return (
+    <span className="relative flex h-2 w-2">
+      <span className="absolute inset-0 animate-ping rounded-full bg-sage opacity-60" />
+      <span className="relative h-2 w-2 rounded-full bg-sage" />
+    </span>
   );
 }
 

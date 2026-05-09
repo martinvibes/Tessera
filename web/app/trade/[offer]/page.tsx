@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { BrowserProvider } from "ethers";
+import { BrowserProvider, ZeroAddress } from "ethers";
 import { motion } from "motion/react";
 import { useWeb3Auth, useWeb3AuthConnect } from "@web3auth/modal/react";
 import {
@@ -84,7 +84,8 @@ export default function TradeAcceptPage({
   const buyAmount = BigInt(t.buyAmount);
   const price = sellAmount > 0n ? Number(buyAmount) / Number(sellAmount) : 0;
   const deadlineDate = new Date(Number(t.deadline) * 1000);
-  const youAreBuyer = account?.toLowerCase() === t.buyer.toLowerCase();
+  const isOpenOffer = t.buyer.toLowerCase() === ZeroAddress.toLowerCase();
+  const youAreBuyer = isOpenOffer || account?.toLowerCase() === t.buyer.toLowerCase();
   const expired = Math.floor(Date.now() / 1000) > Number(t.deadline);
   const settled = acceptStatus === "settled";
 
@@ -95,10 +96,17 @@ export default function TradeAcceptPage({
     try {
       const ethers = new BrowserProvider(provider as never);
       const signer = await ethers.getSigner();
+
+      // For open offers (buyer=0x0), the taker signs with their own address
+      // as buyer. For private offers, the taker signs the original terms.
+      const signingTerms = isOpenOffer
+        ? { ...termsValueForSigning(decoded.terms), buyer: account }
+        : termsValueForSigning(decoded.terms);
+
       const buyerSig = await signer.signTypedData(
         DvP_DOMAIN(),
         DvP_TYPES,
-        termsValueForSigning(decoded.terms),
+        signingTerms,
       );
 
       setAcceptStatus("submitting");
@@ -107,6 +115,8 @@ export default function TradeAcceptPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...decoded.terms,
+          // For open offers, tell the server who the taker is.
+          ...(isOpenOffer ? { taker: account, isOpen: true } : {}),
           sellerSig: decoded.sellerSig,
           buyerSig,
         }),

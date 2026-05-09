@@ -18,6 +18,10 @@ type SettleBody = {
   deadline: string;
   sellerSig: string;
   buyerSig: string;
+  /** For open offers: the actual taker address (buyer in terms is 0x0). */
+  taker?: string;
+  /** True when this is an open offer (buyer=0x0 in seller's signature). */
+  isOpen?: boolean;
 };
 
 /**
@@ -90,18 +94,35 @@ export async function POST(req: Request) {
     const settlement = new Contract(settlementAddress, SETTLEMENT_ABI, wallet);
 
     const tx = await withOperatorTx(async () => {
-      const t = await settlement.settleAtomic(
-        body.seller,
-        body.buyer,
-        body.sellAsset,
-        body.buyAsset,
-        sellAmt,
-        buyAmt,
-        nonce,
-        deadline,
-        body.sellerSig,
-        body.buyerSig,
-      );
+      let t;
+      if (body.isOpen && body.taker) {
+        // Open offer: seller signed with buyer=0x0, taker signed with their address.
+        t = await settlement.settleOpenOffer(
+          body.seller,
+          body.taker,
+          body.sellAsset,
+          body.buyAsset,
+          sellAmt,
+          buyAmt,
+          nonce,
+          deadline,
+          body.sellerSig,
+          body.buyerSig,
+        );
+      } else {
+        t = await settlement.settleAtomic(
+          body.seller,
+          body.buyer,
+          body.sellAsset,
+          body.buyAsset,
+          sellAmt,
+          buyAmt,
+          nonce,
+          deadline,
+          body.sellerSig,
+          body.buyerSig,
+        );
+      }
       await t.wait();
       return t;
     });

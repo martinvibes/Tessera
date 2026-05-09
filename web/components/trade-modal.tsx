@@ -180,21 +180,11 @@ export function TradeModal({
         termsValueForSigning(terms),
       );
 
-      if (openOffer) {
-        const res = await fetch("/api/orderbook", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ terms, sellerSig }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Failed to post offer");
-        setPostedToBook(true);
-        setLink(null);
-      } else {
-        const encoded = encodeSignedOffer({ terms, sellerSig });
-        setLink(`${window.location.origin}/trade/${encoded}`);
-        setPostedToBook(false);
-      }
+      // All offers generate a shareable URL containing the full signed
+      // terms — no server-side storage needed. Works on Vercel serverless.
+      const encoded = encodeSignedOffer({ terms, sellerSig });
+      setLink(`${window.location.origin}/trade/${encoded}`);
+      setPostedToBook(openOffer);
       setStep("ready");
     } catch (e: unknown) {
       const message =

@@ -1,32 +1,29 @@
 import type { Log, JsonRpcProvider } from "ethers";
 
 /**
- * Fetch event logs in chunked block ranges. Public RPC providers (notably
- * Alchemy free tier) cap a single `eth_getLogs` call to a small block window.
- * This helper splits the [from, to] range into chunks and fetches them with
- * bounded concurrency.
+ * Fetch event logs in chunked block ranges. Automatically picks a chunk
+ * size based on the RPC provider:
+ *   - Public RPCs (publicnode, etc): 2000 blocks/call — fast, no key needed.
+ *   - Alchemy free tier: 10 blocks/call — slow but works as fallback.
  */
 export async function getLogsChunked(
   provider: JsonRpcProvider,
   filter: { address: string; fromBlock: number; toBlock: number },
-  chunkSize = 10,
-  concurrency = 6,
 ): Promise<Log[]> {
   const { address, fromBlock, toBlock } = filter;
   if (toBlock < fromBlock) return [];
 
-  const ranges: Array<{ from: number; to: number }> = [];
-  for (let from = fromBlock; from <= toBlock; from += chunkSize) {
-    ranges.push({ from, to: Math.min(from + chunkSize - 1, toBlock) });
-  }
+  // Detect the provider to pick the right chunk size.
+  const url = (provider._getConnection?.().url ?? "").toLowerCase();
+  const isAlchemy = url.includes("alchemy.com");
+  const chunkSize = isAlchemy ? 10 : 2000;
 
   const out: Log[] = [];
-  let i = 0;
-  async function worker() {
-    while (true) {
-      const idx = i++;
-      if (idx >= ranges.length) return;
-      const { from, to } = ranges[idx];
+
+  for (let from = fromBlock; from <= toBlock; from += chunkSize) {
+    const to = Math.min(from + chunkSize - 1, toBlock);
+
+    for (let attempt = 0; attempt < 4; attempt++) {
       try {
         const logs = await provider.getLogs({
           address,
@@ -34,32 +31,28 @@ export async function getLogsChunked(
           toBlock: to,
         });
         out.push(...logs);
+        break;
       } catch (e) {
-        // If a single chunk fails (e.g. rate limit), retry once with a smaller window.
-        if (chunkSize > 1) {
-          const half = Math.max(1, Math.floor((to - from + 1) / 2));
-          const a = await provider.getLogs({
-            address,
-            fromBlock: from,
-            toBlock: from + half - 1,
-          });
-          const b = await provider.getLogs({
-            address,
-            fromBlock: from + half,
-            toBlock: to,
-          });
-          out.push(...a, ...b);
-        } else {
-          throw e;
+        const msg = String(e);
+        if ((msg.includes("429") || msg.includes("exceeded")) && attempt < 3) {
+          await sleep(500 * Math.pow(2, attempt));
+          continue;
         }
+        if (attempt === 3) throw e;
       }
     }
+
+    // Small pause on rate-limited providers.
+    if (isAlchemy) await sleep(100);
   }
-  await Promise.all(Array.from({ length: concurrency }, worker));
 
   out.sort((a, b) => {
     if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
     return (a.transactionIndex ?? 0) - (b.transactionIndex ?? 0);
   });
   return out;
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }

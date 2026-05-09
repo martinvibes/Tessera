@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 
 /**
@@ -37,14 +38,15 @@ export function Modal({
 
   const widthClass = size === "lg" ? "max-w-2xl" : "max-w-md";
 
-  return (
+  const content = (
     <AnimatePresence>
       {open && (
         <motion.div
           role="dialog"
           aria-modal="true"
           aria-labelledby={labelledBy}
-          className="fixed inset-0 z-[100] flex items-end justify-center px-0 sm:items-center sm:px-6"
+          className="fixed inset-0 z-[9999] flex items-center justify-center px-4 sm:px-6"
+          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -59,9 +61,9 @@ export function Modal({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           />
-          {/* panel — bottom-sheet on mobile, centered on desktop */}
+          {/* panel */}
           <motion.div
-            className={`relative z-10 flex w-full ${widthClass} max-h-[92vh] flex-col overflow-hidden border border-rule bg-ink-2 shadow-2xl sm:rounded-none`}
+            className={`relative z-10 flex w-full ${widthClass} max-h-[92vh] flex-col overflow-hidden border border-rule bg-ink-2 shadow-2xl`}
             initial={{ opacity: 0, y: 24, scale: 1 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.99 }}
@@ -73,4 +75,11 @@ export function Modal({
       )}
     </AnimatePresence>
   );
+
+  // Portal to document.body so the modal escapes any parent stacking context
+  // (e.g. the sticky header with z-50 that clips the sign-out modal).
+  if (typeof document !== "undefined") {
+    return createPortal(content, document.body);
+  }
+  return content;
 }

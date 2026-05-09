@@ -72,11 +72,13 @@ export async function POST(req: Request) {
   const tokenIface = new Interface(tokenAbi);
   const settlementIface = new Interface(SETTLEMENT_ABI);
 
-  const rpc = process.env.RPC_URL;
-  if (!rpc) {
-    return NextResponse.json({ error: "RPC_URL not configured." }, { status: 500 });
+  // Use a separate RPC for scanning — public RPCs allow much larger block
+  // ranges per eth_getLogs call (2000+ vs Alchemy free tier's 10).
+  const scanRpc = process.env.SCAN_RPC_URL || process.env.RPC_URL;
+  if (!scanRpc) {
+    return NextResponse.json({ error: "RPC not configured." }, { status: 500 });
   }
-  const provider = new JsonRpcProvider(rpc);
+  const provider = new JsonRpcProvider(scanRpc);
 
   try {
     const balance = await reconstructBalance({

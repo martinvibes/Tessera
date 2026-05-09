@@ -83,17 +83,9 @@ export function LoginButton() {
     } catch {}
   }
 
-  if (!isInitialized) {
-    return (
-      <button
-        disabled
-        className="num inline-flex items-center gap-2 rounded-none border border-rule px-4 py-2 text-[11px] uppercase tracking-[0.18em] text-paper-faint"
-      >
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-paper-faint" />
-        Initializing
-      </button>
-    );
-  }
+  // Skip the "Initializing" flash — show "Sign in" immediately.
+  // Web3Auth resolves within 1-2s; if the user clicks before it's ready,
+  // the connect() call will wait internally.
 
   if (!isConnected) {
     return (

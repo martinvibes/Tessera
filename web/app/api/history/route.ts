@@ -94,7 +94,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Server not configured." }, { status: 500 });
   }
 
-  const provider = new JsonRpcProvider(rpc);
+  const scanRpc = process.env.SCAN_RPC_URL || rpc;
+  const provider = new JsonRpcProvider(scanRpc);
   const tbillIface = new Interface(TBILL_ABI);
   const usdcIface = new Interface(USDC_ABI);
   const idIface = new Interface(TESSERA_ID_ABI);

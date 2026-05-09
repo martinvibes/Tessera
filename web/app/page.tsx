@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   motion,
   useReducedMotion,
@@ -34,6 +34,8 @@ const CursorGlow = dynamic(
 export default function Home() {
   const reduce = useReducedMotion();
   const { isConnected } = useWeb3AuthConnect();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const { scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 80, damping: 22 });
@@ -49,7 +51,7 @@ export default function Home() {
         className="fixed left-0 right-0 top-0 z-50 h-[2px] origin-left bg-marigold"
       />
 
-      <Hero reduce={!!reduce} isConnected={isConnected} />
+      <Hero reduce={!!reduce} isConnected={mounted && isConnected} />
       <EncryptedTicker />
       <Band />
       <BigMark />

@@ -1,14 +1,16 @@
 import type { NextConfig } from "next";
-import path from "node:path";
+import { resolve } from "node:path";
 
 const nextConfig: NextConfig = {
-  // Pin Turbopack's workspace root to the monorepo root, not the user's home
-  // (which has a stray package-lock.json that Next 16 was misidentifying).
-  turbopack: {
-    root: path.resolve(__dirname, ".."),
+  turbopack: {},
+  outputFileTracingRoot: resolve(__dirname, ".."),
+  webpack: (config) => {
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      "@react-native-async-storage/async-storage": false,
+    };
+    return config;
   },
-  // Same hint for Webpack output file tracing (used by `next build`).
-  outputFileTracingRoot: path.resolve(__dirname, ".."),
 };
 
 export default nextConfig;

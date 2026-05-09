@@ -70,6 +70,9 @@ export default function Dashboard() {
   const [withdrawModal, setWithdrawModal] = useState<"cTBILL" | "cUSDC" | null>(null);
   const [decrypts, setDecrypts] = useState<Record<string, DecryptState>>({});
   const [showLookup, setShowLookup] = useState(false);
+  const [myOffers, setMyOffers] = useState<
+    { url: string; sellSymbol: string; buySymbol: string; sellAmount: string; buyAmount: string; createdAt: number }[]
+  >([]);
 
   const decryptBalance = useCallback(
     async (symbol: "cTBILL" | "cUSDC", tokenAddress: string) => {
@@ -372,19 +375,26 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Trade info */}
+        {/* My offers */}
         <div className="col-span-12">
           <Panel
-            title="Trading"
-            subtitle="Create a trade offer and share the link. Anyone with the link can accept — both legs settle atomically."
+            title="Your offers"
+            subtitle="Share the link with your counterparty. When they accept, both legs settle atomically."
           >
-            <div className="flex items-center gap-3 py-2 text-[13px] text-paper-dim">
-              <Pulse />
-              <span>
-                Click <span className="text-paper">Trade</span> on a position card to create an offer link.
-                Share it with your counterparty — when they sign, both legs settle in one transaction.
-              </span>
-            </div>
+            {myOffers.length === 0 ? (
+              <div className="flex items-center gap-3 py-2 text-[13px] text-paper-dim">
+                <Pulse />
+                <span>
+                  No offers yet. Click <span className="text-paper">Trade</span> on a position card to create one.
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {myOffers.map((o, i) => (
+                  <OfferRow key={i} offer={o} />
+                ))}
+              </div>
+            )}
           </Panel>
         </div>
 
@@ -448,6 +458,7 @@ export default function Dashboard() {
         sellSymbol={tradeModal ?? "cTBILL"}
         walletProvider={provider as unknown}
         fromAddress={account}
+        onOfferCreated={(offer) => setMyOffers((prev) => [offer, ...prev])}
       />
       <DepositModal open={depositOpen} onClose={() => setDepositOpen(false)} />
       <WithdrawModal
@@ -972,6 +983,53 @@ function Arrow() {
 function Spinner() {
   return (
     <span className="inline-block h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+  );
+}
+
+function OfferRow({
+  offer,
+}: {
+  offer: { url: string; sellSymbol: string; buySymbol: string; sellAmount: string; buyAmount: string; createdAt: number };
+}) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(offer.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1300);
+    } catch {}
+  }
+  const sell = BigInt(offer.sellAmount).toLocaleString("en-US");
+  const buy = BigInt(offer.buyAmount).toLocaleString("en-US");
+  const ago = Math.floor((Date.now() - offer.createdAt) / 60000);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border border-rule bg-ink px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-[14px] text-paper">
+          Sell <span className="font-medium">{sell} {offer.sellSymbol}</span> for{" "}
+          <span className="font-medium">{buy} {offer.buySymbol}</span>
+        </p>
+        <p className="num mt-0.5 text-[10.5px] text-paper-faint">
+          {ago < 1 ? "just now" : `${ago}m ago`} · waiting for counterparty
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={copy}
+          className="num inline-flex items-center gap-2 border border-marigold bg-marigold px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-ink transition-colors hover:bg-marigold-deep hover:border-marigold-deep"
+        >
+          {copied ? "Copied ✓" : "Copy link"}
+        </button>
+        <a
+          href={offer.url}
+          target="_blank"
+          rel="noopener"
+          className="num inline-flex items-center gap-1.5 border border-rule px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-paper-dim transition-colors hover:border-paper-faint hover:text-paper"
+        >
+          Preview
+        </a>
+      </div>
+    </div>
   );
 }
 

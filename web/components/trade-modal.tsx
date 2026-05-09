@@ -30,12 +30,21 @@ export function TradeModal({
   sellSymbol,
   walletProvider,
   fromAddress,
+  onOfferCreated,
 }: {
   open: boolean;
   onClose: () => void;
   sellSymbol: "cTBILL" | "cUSDC";
   walletProvider: unknown | null;
   fromAddress: string | null;
+  onOfferCreated?: (offer: {
+    url: string;
+    sellSymbol: string;
+    buySymbol: string;
+    sellAmount: string;
+    buyAmount: string;
+    createdAt: number;
+  }) => void;
 }) {
   const buySymbol: "cTBILL" | "cUSDC" =
     sellSymbol === "cTBILL" ? "cUSDC" : "cTBILL";
@@ -183,8 +192,17 @@ export function TradeModal({
       // All offers generate a shareable URL containing the full signed
       // terms — no server-side storage needed. Works on Vercel serverless.
       const encoded = encodeSignedOffer({ terms, sellerSig });
-      setLink(`${window.location.origin}/trade/${encoded}`);
+      const offerUrl = `${window.location.origin}/trade/${encoded}`;
+      setLink(offerUrl);
       setPostedToBook(openOffer);
+      onOfferCreated?.({
+        url: offerUrl,
+        sellSymbol,
+        buySymbol,
+        sellAmount: sell.toString(),
+        buyAmount: buy.toString(),
+        createdAt: Date.now(),
+      });
       setStep("ready");
     } catch (e: unknown) {
       const message =
